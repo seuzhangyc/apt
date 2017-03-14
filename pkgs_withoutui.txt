@@ -206,5 +206,6 @@ com.android.nfc
 com.miui.home
 com.miui.fm
 com.miui.bugreport
+com.xiaomi.channel
 com.android.providers.downloads.ui
 com.miui.serviceloop

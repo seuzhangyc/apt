@@ -254,9 +254,9 @@ extract_lmk()
 		lmk_minadjkilled[i]=$minadjkilled
 	done
 
-	echo ${lmk_cnt[@]} | tr ' ' '\n'> $extract_lmk_dir/lmk_cnt.txt
-	echo ${lmk_memfreed[@]} | tr ' ' '\n'> $extract_lmk_dir/lmk_memfreed.txt
-	echo ${lmk_minadjkilled[@]} | tr ' ' '\n'> $extract_lmk_dir/lmk_minadjkilled.txt
+	echo ${lmk_cnt[@]} | tr ' ' '\n' > $extract_lmk_dir/lmk_cnt.txt
+	echo ${lmk_memfreed[@]} | tr ' ' '\n' > $extract_lmk_dir/lmk_memfreed.txt
+	echo ${lmk_minadjkilled[@]} | tr ' ' '\n' > $extract_lmk_dir/lmk_minadjkilled.txt
 }
 
 extract_app_launch_time()
@@ -561,8 +561,8 @@ analyse_log()
 		`calc_avg $extract_mem_dir/mem_filecache.txt` \
 		`calc_avg $extract_mem_dir/mem_anon.txt` \
 		`calc_avg $extract_mem_dir/mem_swapused.txt` \
-		`calc_avg $extract_mem_dir/lmk_cnt.txt` \
-		`calc_avg $extract_mem_dir/ams_kill.txt` \
+		`calc_avg $extract_lmk_dir/lmk_cnt.txt` \
+		`calc_avg $extract_ams_dir/ams_kill.txt` \
 		`calc_avg $extract_dir/pkgs_launch_time.txt` \
 		" >> $report_mem_file
 

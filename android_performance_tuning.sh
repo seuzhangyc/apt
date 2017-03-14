@@ -16,6 +16,10 @@ get_packages()
 {
 	local i=0
 
+	if [ ! -e $pkgs_withoutui_file ]; then
+		wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file
+	fi
+
 	for p in `adb shell "pm list package -e" | tr -d "\r" | sed 's/package://g'`
 	do
 		# echo $p
@@ -41,38 +45,42 @@ get_log()
 
 	prefix="\n==> `date "+%F@%H:%M:%S"`, $when launch package: [${pkgs_name2index["$p"]}] $p\n"
 
-	# 1. kernel log
+	# 0. add tag
 	echo -e "$prefix" >> $kernel_log_file
 	echo -e "$prefix" >> $lmk_log_file
-
-	adb shell "dmesg -c" 2>/dev/null| sed '/auditd/d' | tee -a $kernel_log_file | grep -A3 -E "lowmemorykiller.*Killing" >> $lmk_log_file
-
-	# 2. meminfo
 	echo -e "$prefix" >> $meminfo_file
-
-	adb shell "cat /proc/meminfo" >> $meminfo_file
-
-	# 3. get vmstat
 	echo -e "$prefix" >> $vmstat_file
-
-	adb shell "cat /proc/vmstat" >> $vmstat_file
-
-	# 4. logcat
 	echo -e "$prefix" >> $logcat_file
 	echo -e "$prefix" >> $ams_file
 	echo -e "$prefix" >> $logcat_events_file
+	echo -e "$prefix" >> $cpusched_file
+	echo -e "$prefix" >> $dumpsys_meminfo_file
 
-	adb logcat -d -b main -b system $crash_str | tee -a $logcat_file | grep -e "ActivityManager:" -e " am_" -e " wm_ " -e "WhetstoneService" \
-		-e " art" -e " WhetstoneService" -e " RenderThread" -e " AndroidRuntime" -e " dex2oat" \
-		-e " NotifierManager" -e " Timeline" -e " ANDR-PERF-MPCTL" -e " BoostFramework" >> $ams_file
+	# 1. kernel log
+	adb shell "dmesg -c" 2>/dev/null| sed '/auditd/d' | tee -a $kernel_log_file | grep -A3 -E "lowmemorykiller.*Killing" >> $lmk_log_file
+
+	# 2. meminfo
+	adb shell "cat /proc/meminfo" >> $meminfo_file
+
+	# 3. get vmstat
+	adb shell "cat /proc/vmstat" >> $vmstat_file
+
+	# 4. logcat
+
+	adb logcat -d -b main -b system $crash_str | tee -a $logcat_file | grep -e \
+		"ActivityManager:" -e " am_" -e " Timeline" -e " wm_ " -e " art" -e " AndroidRuntime" -e " dex2oat"\
+		-e "WhetstoneService" -e "WtProcessController" -e "WtProcessStrategy" -e "WtMemStrategy" -e "WhetstonePackageState" -e "PowerKeeperPolicy" \
+		-e "octvm" -e "octvm_drv" -e "octvm_whetstone" -e "MemController" -e "MemCheckStateMachine" \
+		-e "AutoStartManagerService" \
+		-e " RenderThread"  -e " NotifierManager"  -e " ANDR-PERF-MPCTL" -e " BoostFramework" >> $ams_file
 
 	adb logcat -d -b events | sed '/auditd/d' >> $logcat_events_file
 
-	adb logcat -c -b main -b system $crash_str # clear buffer
-	adb logcat -c -b events # clear buffer
+	 # clear buffer
+	adb logcat -c -b main -b system $crash_str
+	adb logcat -c -b events >>$err_log_file
 
 	# 5. cpu top
-	echo -e "$prefix" >> $cpusched_file
 	adb shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $cpusched_file # show top 10 threads
 
 	case $when in
@@ -81,6 +89,7 @@ get_log()
 		"on")
 			;;
 		"after")
+			adb shell dumpsys meminfo >> $dumpsys_meminfo_file
 			;;
 	esac
 }
@@ -137,7 +146,7 @@ extract_meminfo()
 			fi
 
 			key=`echo $line | sed 's/\(.*\):.*/\1/g'`
-			val=`echo $line | awk '{printf "%.2f",$2/1024}'`
+			val=`echo $line | awk '{printf "%d",$2/1024}'`
 			# val=`echo $line | awk '{printf "%.2f",$2}'`
 			# echo $key,$val
 			m["$key"]=$val
@@ -184,6 +193,7 @@ extract_meminfo()
 		done < $file
 
 		mem_filecache[i]=`echo "scale=2; (${mem_activefile[i]}+${mem_inactivefile[i]}-${mem_swapcache[i]}-${mem_shmem[i]})/1" | bc`
+		mem_anon[i]=`echo "scale=2; (${mem_activeanon[i]}+${mem_inactiveanon[i]})/1" | bc`
 		mem_swapused[i]=`echo "scale=2; (${mem_swaptotal}-${mem_swapfree[i]})/1" | bc`
 
 	done
@@ -205,6 +215,7 @@ extract_meminfo()
 	# calculated
 
 	echo ${mem_filecache[@]} | tr ' ' '\n'> $extract_mem_dir/mem_filecache.txt
+	echo ${mem_anon[@]} | tr ' ' '\n'> $extract_mem_dir/mem_anon.txt
 	echo ${mem_swapused[@]} | tr ' ' '\n'> $extract_mem_dir/mem_swapused.txt
 }
 
@@ -316,33 +327,72 @@ extract_ams()
 		[[ -z $has_died_cnt ]] && has_died_cnt=0
 		has_died_cnt=$((has_died_cnt*10)) # x10, to see it clearly in csv file
 
-		# get framework kill count
-		fw_kill_cnt=`cat $file | grep -E "ActivityManager: Killing [0-9]*:" | wc -l`
-		[[ -z $fw_kill_cnt ]] && fw_kill_cnt=0
-		fw_kill_cnt=$((fw_kill_cnt*10)) # x10, to see it clearly in csv file
-
-		# get whetstone kill count
-		whetstone_kill_cnt=`cat $file | grep -E "ActivityManager: Killing [0-9]*:.*whetstone" | wc -l`
-		[[ -z $whetstone_kill_cnt ]] && whetstone_kill_cnt=0
-		whetstone_kill_cnt=$((whetstone_kill_cnt*10)) # x10, to see it clearly in csv file
-
-		# get ams kill count
-		ams_kill_count=$((fw_kill_cnt-whetstone_kill_cnt))
-
 		ams_startproc[i]=$start_proc_cnt
-		ams_lmkkill[i]=$has_died_cnt
-		ams_fwkill[i]=$fw_kill_cnt
-		ams_amskill[i]=$ams_kill_count
-		ams_whetstonekill[i]=$whetstone_kill_cnt
+		ams_hasdied[i]=$has_died_cnt
 
 	done
 
 	echo ${ams_startproc[@]} | tr ' ' '\n'> $extract_ams_dir/ams_startproc.txt
-	echo ${ams_lmkkill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_lmkkill.txt
-	echo ${ams_fwkill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_fwkill.txt
-	echo ${ams_amskill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_amskill.txt
-	echo ${ams_whetstonekill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_whetstonekill.txt
+	echo ${ams_hasdied[@]} | tr ' ' '\n'> $extract_ams_dir/ams_hasdied.txt
 }
+
+
+extract_events()
+{
+	local loop=$1
+
+	splite_file $logcat_events_file
+
+	# iterate each split file
+	for file in $splited_files
+	do
+		# echo $file
+		local tmp=(`sed -n 's/==>.*, \(.*\) launch package: \[.*\] \(.*\)/\1 \2/gp' $file | tr -d '\r'`) # get when and pkg
+		local when=${tmp[0]}
+		local p=${tmp[1]}
+		local p_index=${pkgs_name2index["$p"]}
+		local i=$(((p_index-1)*3+when_offset[$when]))
+		# echo "${tmp[@]} => $when,$p,$p_index,$i"
+
+		#
+		# kill
+		#
+
+		# get am_kill
+		am_kill_cnt=`cat $file | grep -E "am_kill" | wc -l`
+		am_kill_cnt=$((am_kill_cnt*10))
+
+		# get ams empty kill
+		empty_kill=`cat $file | grep -E "am_kill.*empty" | wc -l`
+		empty_kill=$((empty_kill*10))
+
+		# get whetstone kill
+		whetstone_kill_cnt=`cat $file | grep -E "am_kill.*whetstone" | wc -l`
+		whetstone_kill_cnt=$((whetstone_kill_cnt*10))
+
+		# get Security Center kill
+		securitycenter_kill_cnt=`cat $file | grep -E "am_kill.*SecurityCenter" | wc -l`
+		securitycenter_kill_cnt=$((securitycenter_kill_cnt*10))
+
+		# get forcestop kill
+		forcestop_kill_cnt=`cat $file | grep -E "am_kill.*stop.*from pid" | wc -l`
+		forcestop_kill_cnt=$((forcestop_kill_cnt*10))
+
+		ams_kill[i]=$am_kill_cnt
+		ams_empty_kill[i]=$empty_kill
+		ams_whetstone_kill[i]=$whetstone_kill_cnt
+		ams_securitycenter_kill[i]=$securitycenter_kill_cnt
+		ams_forcestop_kill[i]=$forcestop_kill_cnt
+
+	done
+
+	echo ${ams_kill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_kill.txt
+	echo ${ams_empty_kill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_empty_kill.txt
+	echo ${ams_whetstone_kill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_whetstone_kill.txt
+	echo ${ams_securitycenter_kill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_securitycenter_kill.txt
+	echo ${ams_forcestop_kill[@]} | tr ' ' '\n'> $extract_ams_dir/ams_forcestop_kill.txt
+}
+
 
 # anaylise each loop log
 analyse_log()
@@ -387,6 +437,7 @@ analyse_log()
 	mem_vmallocused=()
 	mem_vmallocchunk=()
 	mem_filecache=() # calculated
+	mem_anon=() # calculated
 	mem_swapused=() # calculated
 
 	# vmstat
@@ -402,10 +453,13 @@ analyse_log()
 
 	# ams
 	ams_startproc=()
-	ams_lmkkill=()
-	ams_fwkill=()
-	ams_amskill=()
-	ams_whetstonekill=()
+	ams_hasdied=()
+
+	ams_kill=()
+	ams_empty_kill=()
+	ams_whetstone_kill=()
+	ams_securitycenter_kill=()
+	ams_forcestop_kill=()
 
 	ams_avg=()
 
@@ -424,6 +478,9 @@ analyse_log()
 	# 1.3 extract ams info
 	extract_ams $loop
 
+	# 1.4 extract events info
+	extract_events $loop
+
 	# 1.4 extract app launch time
 	extract_app_launch_time $loop
 
@@ -441,17 +498,21 @@ analyse_log()
 	echo -e "pkg \
 			mem_free \
 			mem_filecache \
+			mem_anon \
 			mem_anonpages \
 			mem_mapped \
-			mem_slab \
-			mem_swapused \
-			mem_swaptotal \
+			slab \
+			swapused \
+			swaptotal \
 			lmk_cnt \
+			lmk_minfree5 \
 			ams_startproc \
-			ams_lmkkill \
-			ams_fwkill \
-			ams_amskill \
-			ams_whetstonekill \
+			ams_hasdied \
+			ams_kill \
+			ams_empty_kill \
+			ams_whetstone_kill \
+			ams_securitycenter_kill \
+			ams_forcestop_kill \
 			launch_time"\
 			>> $mem_loop_file
 
@@ -461,29 +522,36 @@ analyse_log()
 		p=${pkgs_name_launched[p_index]}
 
 		echo -e "$p \
-				${mem_free[$i]} \
-				${mem_filecache[$i]} \
+				${mem_free[i]} \
+				${mem_filecache[i]} \
+				${mem_anon[i]} \
 				${mem_anonpages[$i]} \
 				${mem_mapped[$i]} \
 				${mem_slab[$i]} \
 				${mem_swapused[i]} \
 				${mem_swaptotal} \
 				${lmk_cnt[$i]} \
+				${lmk_minfree_ajusted_M[5]} \
 				${ams_startproc[i]} \
-				${ams_lmkkill[i]} \
-				${ams_fwkill[i]} \
-				${ams_amskill[i]} \
-				${ams_whetstonekill[i]} \
+				${ams_hasdied[i]} \
+				${ams_kill[i]} \
+				${ams_empty_kill[i]} \
+				${ams_whetstone_kill[i]} \
+				${ams_securitycenter_kill[i]} \
+				${ams_forcestop_kill[i]} \
 				${pkgs_launch_time[p_index]}"\
 				>> $mem_loop_file
 	done
 
-	# 2.2 mem report
+	# 2.2 mem report: average data of each loop
 	if [ ! -e $report_mem_file ]; then
 		echo -e "loop \
 				mem_free \
 				mem_filecache \
-				mem_swapused \
+				mem_anon \
+				swapused \
+				lmk_cnt \
+				ams_kill \
 				pkgs_launch_time"\
 				>> $report_mem_file
 	fi
@@ -491,46 +559,21 @@ analyse_log()
 	echo "$loop \
 		`calc_avg $extract_mem_dir/mem_free.txt` \
 		`calc_avg $extract_mem_dir/mem_filecache.txt` \
+		`calc_avg $extract_mem_dir/mem_anon.txt` \
 		`calc_avg $extract_mem_dir/mem_swapused.txt` \
+		`calc_avg $extract_mem_dir/lmk_cnt.txt` \
+		`calc_avg $extract_mem_dir/ams_kill.txt` \
 		`calc_avg $extract_dir/pkgs_launch_time.txt` \
 		" >> $report_mem_file
 
 	# 2.3 app launch time
-	if [ ! -e $result_dir/pkgs_launch_time.txt ]; then
+	if [ ! -e $report_pkgs_launch_time_file ]; then
 		echo ${pkgs_name_launched[@]} >> $report_pkgs_launch_time_file
 	fi
 	echo ${pkgs_launch_time[@]} >> $report_pkgs_launch_time_file
-
-#	# 3x $extract_launch_time_file
-#	paste -d " " $extract_launch_time_file $extract_launch_time_file $extract_launch_time_file | tr ' ' '\n ' > $launch_time_x3_file
-#	sed -i '1,2d' $launch_time_x3_file
-#
-#	# 4. remove un-tested pkg and duplicate each line 3x and add head of this file
-#	sed -ni "1,${#pkgs_name_launched[@]}p" $pkgs_withui_file
-#	paste -d " " $pkgs_withui_file $pkgs_withui_file $pkgs_withui_file | tr ' ' '\n ' | sed '1i package' > $pkg_x3_file
-#
-#	# 5. write to memory_$loop.csv
-#
-#	# combine rows of these files
-#	paste -d "\t" $pkg_x3_file $extract_meminfo_file $extract_lmk_log_file $extract_ams_file $launch_time_x3_file | \
-#		nl -v 0 | sed 's/^[ \t]*//g' > $output_memory_file
-#
-#	# append average data to report mem file
-#	if [ ! -e $report_mem_file ]; then
-#		# add first line
-#		cat $output_memory_file 2>/dev/null | sed -n '1p' | awk '{for(i=3;i<=NF;i++) printf "%s\t", $i}' | sed 's/\(.*\)\t$/loop\t\1\n/g'>> $report_mem_file
-#	fi
-#
-#	cat $output_memory_file | sed -n '2,$p'| awk 'BEGIN{lines=0} {lines++; for(i=3;i<=NF;i++) sum[i]+=$i} END{for(i=3;i<=NF;i++) printf "%.1f\t", sum[i]/lines}' \
-#	 | sed "s/\(.*\)\t$/$loop\t\1\n/g" >> $report_mem_file
-#
-#	if [ ! -e $report_app_launch_time_file ]; then
-#		cat $pkgs_withui_file | tr '\n' '\t' | sed 's/\(.*\)\t$/\1\n/g' > $report_app_launch_time_file
-#	fi
-#	cat $extract_launch_time_file | sed -n '2,$p'| tr '\n' '\t' | sed 's/\(.*\)\t$/\1\n/g' >> $report_app_launch_time_file
 }
 
-prepare_user_loop()
+prepare_user_action()
 {
 	local loop=$1
 
@@ -552,47 +595,46 @@ prepare_loop()
 
 	echo "preparing loop $loop"
 
-	if [[ -z $debug ]]; then
+	# restart framework
+	# echo "  restart framework"
+	# adb shell stop
+	# sleep 10
+	# adb shell start
+	# sleep 300 # 5 min
 
-		# restart framework
-		# echo "  restart framework"
-		# adb shell stop
-		# sleep 10
-		# adb shell start
-		# sleep 300 # 5 min
+	if [ $reboot_device -eq 1 ]; then
+		# reboot device
+		echo "  reboot device"
+		adb shell reboot
+		sleep 300 # 5 min
 
-		if [ $reboot_device -eq 1 ]; then
-			# reboot device
-			echo "  reboot device"
-			adb shell reboot
-			sleep 300 # 5 min
+		echo "  unlock screen"
+		adb shell input keyevent 26 # press power
+		adb shell input swipe 400 600 400 200 # swipe up to unlock screen
 
-			echo "  unlock screen"
-			adb shell input keyevent 26 # press power
-			adb shell input swipe 400 600 400 200 # swipe up to unlock screen
+		sleep 120 # 2 min
 
-			sleep 120 # 2 min
+	fi
 
-			echo "  user action prepare"
-			prepare_user_loop $loop
+	if [ $have_user_action -eq 1 ]; then
+		echo "  user action prepare"
+		prepare_user_action $loop
 
-			# drop cache and buffer
-			# adb shell sync
-			# adb shell "echo 3 > /proc/sys/vm/drop_caches"
+		# drop cache and buffer
+		# adb shell sync
+		# adb shell "echo 3 > /proc/sys/vm/drop_caches"
 
-			sleep 120 # 2 min
-
-		fi
+		sleep 120 # 2 min
 	fi
 
 	# save and clear kernel/fw log
 	echo "  save and clear kernel/framework log"
-	adb shell dmesg -c 2>/dev/null > $log_dir/kmesg_beforetest.txt
+	adb shell dmesg -c 2>>$err_log_file > $log_dir/kmesg_beforetest.txt
 	adb logcat -d -b main -b system $crash_str > $log_dir/logcat_beforetest.txt
 	adb logcat -d -b events > $log_dir/logcat_events_beforetest.txt
 
 	adb logcat -c -b main -b system $crash_str
-	adb logcat -c -b events
+	adb logcat -c -b events >>$err_log_file
 
 }
 
@@ -651,6 +693,9 @@ launch_apps()
 	logcat_events_file=$log_dir/logcat_events.txt
 	ams_file=$log_dir/ams.txt
 	timeline_file=$log_dir/timeline.txt
+	dumpsys_meminfo_file=$log_dir/dumpsys_meminfo.txt
+
+	err_log_file=$log_dir/error.txt
 
 	#
 	# define some VARs
@@ -666,6 +711,7 @@ launch_apps()
 	prepare_loop $loop
 
 	local i=0
+	local t=0
 
 	echo "launch app loop $loop"
 	for i in `eval echo {1..${#pkgs_name[@]}}`
@@ -678,10 +724,10 @@ launch_apps()
 		#
 
 		# adb shell "input keyevent 3"
-		timeout=$((`date +%s`+$wait_in_home))
+		t=`date +%s`
 		adb shell "monkey -p com.miui.home 1" > /dev/null
 
-		wait_until $timeout;
+		wait_until $((t+$time_from_launch_home))
 
 		#
 		# 2. launch app and get log
@@ -689,7 +735,9 @@ launch_apps()
 		echo "  Launch $i/${#pkgs_name[@]} $p"
 
 		# 2.1 get log before launching app
-		get_log "before" $p;
+		[ $show_timestamp -eq 1 ] && echo "$p: 1 => `date +%s` before get_log"
+		get_log "before" $p
+		[ $show_timestamp -eq 1 ] && echo "$p: 2 => `date +%s` after get_log"
 
 		# 2.2 launch app
 
@@ -698,8 +746,10 @@ launch_apps()
 				freq idle load memreclaim -t 5 -o $systrace_dir/$loop-$i-$sample-$p.html >/dev/null 2>/dev/null &
 		fi
 
-		timeout=$((`date +%s`+$wait_on_launching_app));
+		t=`date +%s`
+		[ $show_timestamp -eq 1 ] && echo "$p: 3 => $t base"
 		result=`adb shell "monkey -p $p 1"`
+		[ $show_timestamp -eq 1 ] && echo "$p: 4 => `date +%s` after monkey"
 
 		# check result
 		if [[ -n `echo $result | grep "No activities found to run, monkey aborted"` ]]; then
@@ -711,29 +761,29 @@ launch_apps()
 		fi
 
 		# 2.3 get log when app is launching
-		wait_until $timeout; timeout=$((`date +%s`+$wait_after_launch_app));
+		[ $show_timestamp -eq 1 ] && echo "$p: 5 => `date +%s`"
+		wait_until $((t+$time1_from_launch_app))
+		[ $show_timestamp -eq 1 ] && echo "$p: 6 => `date +%s` before get_log"
 		get_log "on" $p;
-
-		# 2.4 get log after app launched
-		wait_until $timeout; timeout=$((`date +%s`+$wait_before_launch_home));
-		get_log "after" $p;
+		[ $show_timestamp -eq 1 ] && echo "$p: 7 => `date +%s` after get_log"
 
 		if [ $get_systrace -eq 1 ]; then
 			wait %1 # wait until systrace finished
 		fi
+		[ $show_timestamp -eq 1 ] && echo "$p: 8 => `date +%s` systrace finished"
 
-		wait_until $timeout
+		# 2.4 get log after app launched
+		wait_until $((t+$time2_from_launch_app))
+		[ $show_timestamp -eq 1 ] && echo "$p: 9 => `date +%s` before get_log"
+		get_log "after" $p;
+		[ $show_timestamp -eq 1 ] && echo "$p: 10 => `date +%s` after get_log"
+
+		wait_until $((t+$time3_from_launch_app))
+		[ $show_timestamp -eq 1 ] && echo "$p: 11 => `date +%s` end"
 
 		# check whether exit
-		if [[ -z $debug ]]; then
-			if [ $i -ge 20 ]; then
-				break
-			fi
-		else
-			if [ $i -ge 5 ]; then
-				echo "exit for debug"
-				break
-			fi
+		if [ $i -ge $test_pkgs ]; then
+			break
 		fi
 
 	done
@@ -752,6 +802,7 @@ get_system_info()
 	lmk_adj=(`adb shell "cat /sys/module/lowmemorykiller/parameters/adj" | tr ',' ' '`)
 	lmk_minfree=(`adb shell "cat /sys/module/lowmemorykiller/parameters/minfree" | tr ',' ' '`)
 	lmk_minfree_M=(`echo ${lmk_minfree[@]} | awk '{for(i=1;i<=NF;i++) print $i*4096/1024/1024}'`) # xx MB
+	lmk_minfree_ajusted_M=(`echo ${lmk_minfree_M[@]} | awk '{for(i=1;i<=NF;i++) printf $i*1.25}'`) # *1.25
 
 	echo ${lmk_adj[@]} >> $report_file
 	echo ${lmk_minfree[@]} >> $report_file
@@ -830,28 +881,32 @@ main()
 		crash_str="-b crash"
 	fi
 
-	# time related
 	if [[ -z $debug ]]; then
 		reboot_device=0
-		get_systrace=1
-		wait_in_home=5
-		wait_on_launching_app=3
-		wait_after_launch_app=12
-		wait_before_launch_home=2
+		get_systrace=0
+
+		show_timestamp=0
+		time_from_launch_home=5
+		time1_from_launch_app=3
+		time2_from_launch_app=10
+		time3_from_launch_app=15
+
+		test_pkgs=50
+		test_loops=20
+		have_user_action=0
 	else
 		reboot_device=0
 		get_systrace=0
-		wait_in_home=1
-		wait_on_launching_app=2
-		wait_after_launch_app=3
-		wait_before_launch_home=0
-	fi
 
-	# loops
-	if [[ -z $debug ]]; then
-		loops=20
-	else
-		loops=1
+		show_timestamp=1
+		time_from_launch_home=2
+		time1_from_launch_app=2
+		time2_from_launch_app=4
+		time3_from_launch_app=5
+
+		test_pkgs=5
+		test_loops=1
+		have_user_action=0
 	fi
 
 	# check device online
@@ -881,7 +936,7 @@ main()
 	# get apps to launch
 	get_packages
 
-	for i in `eval echo {1..$loops}`;
+	for i in `eval echo {1..$test_loops}`;
 	do
 		launch_apps $i
 	done

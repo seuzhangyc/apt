@@ -202,6 +202,9 @@ com.mi.webkit.core
 com.android.egg
 com.android.mtp
 com.android.nfc
+com.qualcomm.qti.carrierconfigure
+com.mediatek.factorymode
+com.lantern.sdk.miniapp
 
 com.miui.home
 com.miui.fm

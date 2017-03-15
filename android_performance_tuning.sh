@@ -495,7 +495,8 @@ analyse_log()
 	# 2.1 memory loop
 	local mem_loop_file=$loop_dir/memory-$loop.csv
 
-	echo -e "pkg \
+	echo -e "p_index \
+			pkg \
 			mem_free \
 			mem_filecache \
 			mem_anon \
@@ -521,16 +522,17 @@ analyse_log()
 		p_index=$(((i+2)/3))
 		p=${pkgs_name_launched[p_index]}
 
-		echo -e "$p \
+		echo -e "$p_index\
+				$p \
 				${mem_free[i]} \
 				${mem_filecache[i]} \
 				${mem_anon[i]} \
-				${mem_anonpages[$i]} \
-				${mem_mapped[$i]} \
-				${mem_slab[$i]} \
+				${mem_anonpages[i]} \
+				${mem_mapped[i]} \
+				${mem_slab[i]} \
 				${mem_swapused[i]} \
 				${mem_swaptotal} \
-				${lmk_cnt[$i]} \
+				${lmk_cnt[i]} \
 				${lmk_minfree_ajusted_M[5]} \
 				${ams_startproc[i]} \
 				${ams_hasdied[i]} \
@@ -568,9 +570,9 @@ analyse_log()
 
 	# 2.3 app launch time
 	if [ ! -e $report_pkgs_launch_time_file ]; then
-		echo ${pkgs_name_launched[@]} >> $report_pkgs_launch_time_file
+		echo "loop ${pkgs_name_launched[@]}" >> $report_pkgs_launch_time_file
 	fi
-	echo ${pkgs_launch_time[@]} >> $report_pkgs_launch_time_file
+	echo "$loop ${pkgs_launch_time[@]}" >> $report_pkgs_launch_time_file
 }
 
 prepare_user_action()
@@ -801,12 +803,13 @@ get_system_info()
 	echo -e "------ LMK INFO ------" >> $report_file
 	lmk_adj=(`adb shell "cat /sys/module/lowmemorykiller/parameters/adj" | tr ',' ' '`)
 	lmk_minfree=(`adb shell "cat /sys/module/lowmemorykiller/parameters/minfree" | tr ',' ' '`)
-	lmk_minfree_M=(`echo ${lmk_minfree[@]} | awk '{for(i=1;i<=NF;i++) print $i*4096/1024/1024}'`) # xx MB
-	lmk_minfree_ajusted_M=(`echo ${lmk_minfree_M[@]} | awk '{for(i=1;i<=NF;i++) printf $i*1.25}'`) # *1.25
+	lmk_minfree_M=(`echo ${lmk_minfree[@]} | awk '{for(i=1;i<=NF;i++) printf "%d ",$i*4096/1024/1024}'`) # xx MB
+	lmk_minfree_ajusted_M=(`echo ${lmk_minfree_M[@]} | awk '{for(i=1;i<=NF;i++) printf "%d ",$i*1.25}'`) # *1.25
 
 	echo ${lmk_adj[@]} >> $report_file
 	echo ${lmk_minfree[@]} >> $report_file
 	echo ${lmk_minfree_M[@]} >> $report_file
+	echo ${lmk_minfree_ajusted_M[@]} >> $report_file
 
 	# screen size
 	# adb shell dumpsys window displays |head -n 3

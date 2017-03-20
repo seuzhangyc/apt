@@ -96,7 +96,8 @@ get_log()
 
 calc_avg()
 {
-	avg=`cat $1 | awk 'BEGIN{sum=0; cnt=0} {sum+=$1; cnt++;} END{printf "%d",sum/cnt}'`
+	# ignore 0 value
+	avg=`cat $1 | awk 'BEGIN{sum=0; cnt=0} {sum+=$1; if($1!=0) cnt++;} END{printf "%d",sum/cnt}'`
 	echo "$avg"
 }
 
@@ -288,7 +289,7 @@ extract_app_launch_time()
 			if [[ -n "$request_time" ]] && [[ -n $index ]] && [[ ${pkgs_launch_time[$index]} -eq 0 ]]; then
 				visiable_time=`echo "$line" | sed 's/.*time:\([0-9]*\).*/\1/g'`
 
-				echo "extract_app_launch_time(): [$index] $p: $visiable_time-$request_time = $(($visiable_time-$request_time))" > $tmp_dir/debug.launchtime.txt
+				echo "extract_app_launch_time(): [$index] $p: $visiable_time-$request_time = $(($visiable_time-$request_time))" >> $tmp_dir/debug.launchtime.txt
 				pkgs_launch_time[$index]=`echo "$visiable_time-$request_time" | bc`
 			fi
 
@@ -400,7 +401,7 @@ analyse_log()
 	local loop=$1
 
 	#
-	# define key information
+	# define VARs
 	#
 
 	# meminfo
@@ -462,6 +463,8 @@ analyse_log()
 	ams_forcestop_kill=()
 
 	ams_avg=()
+
+	pkgs_launch_time=()
 
 	echo "analyse loop $loop"
 
@@ -575,19 +578,109 @@ analyse_log()
 	echo "$loop ${pkgs_launch_time[@]}" >> $report_pkgs_launch_time_file
 }
 
-prepare_user_action()
+reboot_device()
+{
+	# reboot device
+	echo "  reboot device"
+	adb shell reboot
+	sleep 60 # 1 min
+
+	echo "  unlock screen"
+	adb shell input keyevent 26 # press power
+	adb shell input swipe 400 600 400 200 # swipe up to unlock screen
+
+	#sleep 60 # 1 min
+}
+
+user_action_before_loop()
 {
 	local loop=$1
 
 	is_odd=$((loop%2))
+
+	# drop cache and buffer
+	# adb shell sync
+	# adb shell "echo 3 > /proc/sys/vm/drop_caches"
+
 	if [ $is_odd -eq 1 ]; then
-		adb shell "echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
+		# adb shell "echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
 		# adb shell "setprop persist.sys.process_reclaim true"
-		echo "enable process reclaim" >> $loop_dir/"changes.txt"
+		# echo "enable process reclaim" >> $loop_dir/"changes.txt"
+
+		# echo "io normal" >> $loop_dir/"changes.txt"
+		# adb shell "setprop persist.sys.ui_fifo 0"
+		# adb shell "setprop persist.sys.ui_rtio 0"
+
+		echo "enable io cg" >> $loop_dir/"changes.txt"
+
+		#adb shell "echo 200 > /dev/cpuset/blkio.leaf_weight"
+		#adb shell "echo 1000 > /dev/cpuset/top-app/blkio.weight"
+		#adb shell "echo 300 > /dev/cpuset/foreground/blkio.weight"
+		#adb shell "echo 100 > /dev/cpuset/background/blkio.weight"
+		#adb shell "echo 100 > /dev/cpuset/system-background/blkio.weight"
+
+		#adb shell "echo 0 > /sys/block/dm-0/queue/iosched/slice_idle"
+		#adb shell "echo 0 > /sys/block/dm-0/queue/iosched/group_idle"
+		#adb shell "echo 16 > /sys/block/dm-0/queue/iosched/quantum"
+
+		#adb shell "echo 0 > /sys/block/mmcblk0/queue/iosched/slice_idle"
+		#adb shell "echo 0 > /sys/block/mmcblk0/queue/iosched/group_idle"
+		#adb shell "echo 16 > /sys/block/mmcblk0/queue/iosched/quantum"
+
+		#adb shell "echo 0 > /sys/block/mmcblk0rpmb/queue/iosched/slice_idle"
+		#adb shell "echo 0 > /sys/block/mmcblk0rpmb/queue/iosched/group_idle"
+		#adb shell "echo 16 > /sys/block/mmcblk0rpmb/queue/iosched/quantum"
+
+		# bps
+		adb shell "echo 253:0 300 > /dev/cpuset/background/blkio.throttle.read_iops_device"
+		adb shell "echo 179:0 300 > /dev/cpuset/background/blkio.throttle.read_iops_device"
+
+		#adb shell "echo 253:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
+		#adb shell "echo 179:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
+
+		#adb shell "echo 253:0 300 > /dev/cpuset/foreground/blkio.weight_device"
+		#adb shell "echo 179:0 300 > /dev/cpuset/foreground/blkio.weight_device"
+
+		#adb shell "echo 253:0 100 > /dev/cpuset/background/blkio.weight_device"
+		#adb shell "echo 179:0 100 > /dev/cpuset/background/blkio.weight_device"
+
+		#adb shell "echo 253:0 100 > /dev/cpuset/system-background/blkio.weight_device"
+		#adb shell "echo 179:0 100 > /dev/cpuset/system-background/blkio.weight_device"
+
+		# weight device
+		#adb shell "echo 253:0 200 > /dev/cpuset/blkio.leaf_weight_device"
+		#adb shell "echo 179:0 200 > /dev/cpuset/blkio.leaf_weight_device"
+
+		#adb shell "echo 253:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
+		#adb shell "echo 179:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
+
+		#adb shell "echo 253:0 300 > /dev/cpuset/foreground/blkio.weight_device"
+		#adb shell "echo 179:0 300 > /dev/cpuset/foreground/blkio.weight_device"
+
+		#adb shell "echo 253:0 100 > /dev/cpuset/background/blkio.weight_device"
+		#adb shell "echo 179:0 100 > /dev/cpuset/background/blkio.weight_device"
+
+		#adb shell "echo 253:0 100 > /dev/cpuset/system-background/blkio.weight_device"
+		#adb shell "echo 179:0 100 > /dev/cpuset/system-background/blkio.weight_device"
+
+		#reboot_device
 	else
-		adb shell "echo 0 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
+		# adb shell "echo 0 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
 		# adb shell "setprop persist.sys.process_reclaim false"
-		echo "disable process reclaim" >> $loop_dir/"changes.txt"
+		# echo "disable process reclaim" >> $loop_dir/"changes.txt"
+
+		# echo "io rt" >> $loop_dir/"changes.txt"
+		# adb shell "setprop persist.sys.ui_fifo 0"
+		# adb shell "setprop persist.sys.ui_rtio 0"
+
+		echo "disable io cg(use default)" >> $loop_dir/"changes.txt"
+		adb shell "echo 500 > /dev/cpuset/blkio.leaf_weight"
+		adb shell "echo 500 > /dev/cpuset/top-app/blkio.weight"
+		adb shell "echo 500 > /dev/cpuset/foreground/blkio.weight"
+		adb shell "echo 500 > /dev/cpuset/background/blkio.weight"
+		adb shell "echo 500 > /dev/cpuset/system-background/blkio.weight"
+
+		#reboot_device
 	fi
 }
 
@@ -604,29 +697,13 @@ prepare_loop()
 	# adb shell start
 	# sleep 300 # 5 min
 
-	if [ $reboot_device -eq 1 ]; then
-		# reboot device
-		echo "  reboot device"
-		adb shell reboot
-		sleep 300 # 5 min
-
-		echo "  unlock screen"
-		adb shell input keyevent 26 # press power
-		adb shell input swipe 400 600 400 200 # swipe up to unlock screen
-
-		sleep 120 # 2 min
-
+	if [ $reboot_device_before_loop -eq 1 ]; then
+		reboot_device
 	fi
 
-	if [ $have_user_action -eq 1 ]; then
+	if [ $enable_user_action_before_loop -eq 1 ]; then
 		echo "  user action prepare"
-		prepare_user_action $loop
-
-		# drop cache and buffer
-		# adb shell sync
-		# adb shell "echo 3 > /proc/sys/vm/drop_caches"
-
-		sleep 120 # 2 min
+		user_action_before_loop $loop
 	fi
 
 	# save and clear kernel/fw log
@@ -638,6 +715,36 @@ prepare_loop()
 	adb logcat -c -b main -b system $crash_str
 	adb logcat -c -b events >>$err_log_file
 
+}
+
+user_action_before_app()
+{
+	local pid
+
+	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
+	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
+	adb shell "my_dd if=/dev/block/bootdevice/by-name/cust of=/dev/null bs=4k count=20480 iflag=direct" &
+	adb shell "my_dd if=/dev/block/bootdevice/by-name/system of=/dev/null bs=4k count=20480 iflag=direct" &
+
+	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
+	do
+		# adb shell ionice $i be 1
+		adb shell "echo $pid > /dev/cpuset/background/tasks"
+	done
+
+	sleep 2
+}
+
+user_action_after_app()
+{
+	local pid
+
+	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
+	do
+		# adb shell ionice $i be 1
+
+		adb shell "kill $pid"
+	done
 }
 
 #
@@ -748,6 +855,10 @@ launch_apps()
 				freq idle load memreclaim -t 5 -o $systrace_dir/$loop-$i-$sample-$p.html >/dev/null 2>/dev/null &
 		fi
 
+		if [ $enable_user_action_before_app -eq 1 ]; then
+			user_action_before_app
+		fi
+
 		t=`date +%s`
 		[ $show_timestamp -eq 1 ] && echo "$p: 3 => $t base"
 		result=`adb shell "monkey -p $p 1"`
@@ -779,6 +890,10 @@ launch_apps()
 		[ $show_timestamp -eq 1 ] && echo "$p: 9 => `date +%s` before get_log"
 		get_log "after" $p;
 		[ $show_timestamp -eq 1 ] && echo "$p: 10 => `date +%s` after get_log"
+
+		if [ $enable_user_action_after_app -eq 1 ]; then
+			user_action_after_app
+		fi
 
 		wait_until $((t+$time3_from_launch_app))
 		[ $show_timestamp -eq 1 ] && echo "$p: 11 => `date +%s` end"
@@ -873,7 +988,6 @@ main()
 	pkgs_name=()
 	pkgs_name_launched=()
 	declare -A pkgs_name2index  # [com.android.xx] <=> i
-	pkgs_launch_time=()
 
 	#
 	# define test parameters
@@ -885,31 +999,35 @@ main()
 	fi
 
 	if [[ -z $debug ]]; then
-		reboot_device=0
-		get_systrace=0
-
 		show_timestamp=0
 		time_from_launch_home=5
 		time1_from_launch_app=3
 		time2_from_launch_app=10
 		time3_from_launch_app=15
 
-		test_pkgs=50
-		test_loops=20
-		have_user_action=0
-	else
-		reboot_device=0
+		reboot_device_before_loop=1
 		get_systrace=0
 
+		test_pkgs=20
+		test_loops=100
+		enable_user_action_before_loop=1
+		enable_user_action_before_app=1
+		enable_user_action_after_app=1
+	else
 		show_timestamp=1
 		time_from_launch_home=2
 		time1_from_launch_app=2
 		time2_from_launch_app=4
 		time3_from_launch_app=5
 
+		reboot_device_before_loop=0
+		get_systrace=0
+
 		test_pkgs=5
 		test_loops=1
-		have_user_action=0
+		enable_user_action_before_loop=0
+		enable_user_action_before_app=0
+		enable_user_action_after_app=0
 	fi
 
 	# check device online

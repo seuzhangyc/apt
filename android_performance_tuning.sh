@@ -16,10 +16,6 @@ get_packages()
 {
 	local i=0
 
-	if [ ! -e $pkgs_withoutui_file ]; then
-		wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file
-	fi
-
 	for p in `adb shell "pm list package -e" | tr -d "\r" | sed 's/package://g'`
 	do
 		# echo $p
@@ -592,6 +588,38 @@ reboot_device()
 	#sleep 60 # 1 min
 }
 
+user_action_before_app()
+{
+	local pid
+
+	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
+	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
+	adb shell "my_dd if=/dev/block/bootdevice/by-name/cust of=/dev/null bs=4k count=20480 iflag=direct" &
+	adb shell "my_dd if=/dev/block/bootdevice/by-name/system of=/dev/null bs=4k count=20480 iflag=direct" &
+
+	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
+	do
+		# adb shell ionice $i be 1
+		adb shell "echo $pid > /dev/cpuset/background/tasks"
+	done
+
+	sleep 2
+}
+
+user_action_after_app()
+{
+	local pid
+
+	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
+	do
+		# adb shell ionice $i be 1
+
+		adb shell "kill $pid"
+	done
+
+	sleep 1
+}
+
 user_action_before_loop()
 {
 	local loop=$1
@@ -611,7 +639,7 @@ user_action_before_loop()
 		# adb shell "setprop persist.sys.ui_fifo 0"
 		# adb shell "setprop persist.sys.ui_rtio 0"
 
-		echo "enable io cg" >> $loop_dir/"changes.txt"
+		echo "enable io cgroup(iops)" >> $loop_dir/"changes.txt"
 
 		#adb shell "echo 200 > /dev/cpuset/blkio.leaf_weight"
 		#adb shell "echo 1000 > /dev/cpuset/top-app/blkio.weight"
@@ -631,7 +659,7 @@ user_action_before_loop()
 		#adb shell "echo 0 > /sys/block/mmcblk0rpmb/queue/iosched/group_idle"
 		#adb shell "echo 16 > /sys/block/mmcblk0rpmb/queue/iosched/quantum"
 
-		# bps
+		# iops
 		adb shell "echo 253:0 300 > /dev/cpuset/background/blkio.throttle.read_iops_device"
 		adb shell "echo 179:0 300 > /dev/cpuset/background/blkio.throttle.read_iops_device"
 
@@ -674,11 +702,11 @@ user_action_before_loop()
 		# adb shell "setprop persist.sys.ui_rtio 0"
 
 		echo "disable io cg(use default)" >> $loop_dir/"changes.txt"
-		adb shell "echo 500 > /dev/cpuset/blkio.leaf_weight"
-		adb shell "echo 500 > /dev/cpuset/top-app/blkio.weight"
-		adb shell "echo 500 > /dev/cpuset/foreground/blkio.weight"
-		adb shell "echo 500 > /dev/cpuset/background/blkio.weight"
-		adb shell "echo 500 > /dev/cpuset/system-background/blkio.weight"
+		#adb shell "echo 500 > /dev/cpuset/blkio.leaf_weight"
+		#adb shell "echo 500 > /dev/cpuset/top-app/blkio.weight"
+		#adb shell "echo 500 > /dev/cpuset/foreground/blkio.weight"
+		#adb shell "echo 500 > /dev/cpuset/background/blkio.weight"
+		#adb shell "echo 500 > /dev/cpuset/system-background/blkio.weight"
 
 		#reboot_device
 	fi
@@ -717,35 +745,7 @@ prepare_loop()
 
 }
 
-user_action_before_app()
-{
-	local pid
 
-	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
-	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
-	adb shell "my_dd if=/dev/block/bootdevice/by-name/cust of=/dev/null bs=4k count=20480 iflag=direct" &
-	adb shell "my_dd if=/dev/block/bootdevice/by-name/system of=/dev/null bs=4k count=20480 iflag=direct" &
-
-	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
-	do
-		# adb shell ionice $i be 1
-		adb shell "echo $pid > /dev/cpuset/background/tasks"
-	done
-
-	sleep 2
-}
-
-user_action_after_app()
-{
-	local pid
-
-	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
-	do
-		# adb shell ionice $i be 1
-
-		adb shell "kill $pid"
-	done
-}
 
 #
 # 1. iterate each app(launch it) and get log
@@ -941,6 +941,40 @@ get_brief_info()
 	get_system_info
 }
 
+push_file()
+{
+	local host_file=$1
+	local target_file=$2
+
+	if [[ -n `adb shell ls $target_file | grep "No such file or directory"` ]]; then
+		adb remount
+		adb push $host_file $target_file
+		adb shell chmod +x $target_file
+	fi
+}
+
+get_tools()
+{
+	echo "Downloading tools"
+
+	mkdir -p $tools_dir
+
+
+	if [ ! -e $pkgs_withoutui_file ]; then
+		wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file > /dev/null
+	fi
+
+	if [ ! -e $tools_dir/my_dd ]; then
+		wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_dd > /dev/null
+	fi
+	push_file $tools_dir/my_dd /system/bin/my_dd
+
+	if [ ! -e $tools_dir/my_fio ]; then
+		wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_fio > /dev/null
+	fi
+	push_file $tools_dir/my_fio /system/bin/my_fio
+}
+
 #==================
 # main()
 #   arg1 - output result tag
@@ -969,6 +1003,7 @@ main()
 	else
 		readonly result_dir=$device_dir/$start_time
 	fi
+	readonly tools_dir=$apt_dir/tools
 
 	#
 	# define some FILEs
@@ -1008,11 +1043,11 @@ main()
 		reboot_device_before_loop=1
 		get_systrace=0
 
-		test_pkgs=20
+		test_pkgs=50
 		test_loops=100
-		enable_user_action_before_loop=1
-		enable_user_action_before_app=1
-		enable_user_action_after_app=1
+		enable_user_action_before_loop=0
+		enable_user_action_before_app=0
+		enable_user_action_after_app=0
 	else
 		show_timestamp=1
 		time_from_launch_home=2
@@ -1050,6 +1085,8 @@ main()
 	echo "	Device id : $device_id"
 	echo "	output	  : $result_dir"
 	echo "============================================================"
+
+	get_tools
 
 	# get system information, like lmk water mark, etc
 	get_brief_info

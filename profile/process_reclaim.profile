@@ -9,19 +9,20 @@ test_loops=100
 
 ==> __action_before_loop__
 
-loop=$1
-loop_dir=$2
+result_dir=$1
+loop=$2
+
 is_odd=$((loop%2))
 
 reboot_device
 
 if [ $is_odd -eq 1 ]; then
-	echo "enable process reclaim" >> $loop_dir/changes.txt
+	echo "enable process reclaim" >> $result_dir/$loop/changes.txt
 
 	adb shell "echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
 	# adb shell "setprop persist.sys.process_reclaim true"
 else
-	echo "disable process reclaim" >> $loop_dir/changes.txt
+	echo "disable process reclaim" >> $result_dir/$loop/changes.txt
 
 	adb shell "echo 0 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
 	# adb shell "setprop persist.sys.process_reclaim false"

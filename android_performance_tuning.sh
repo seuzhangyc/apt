@@ -74,7 +74,7 @@ get_log()
 
 	 # clear buffer
 	adb $adb_on_device logcat -c -b main -b system $crash_str
-	adb $adb_on_device logcat -c -b events >>$err_log_file
+	adb $adb_on_device logcat -c -b events >>$log_file
 
 	# 5. cpu top
 	adb $adb_on_device shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $cpusched_file # show top 10 threads
@@ -598,22 +598,31 @@ run_action_before_loop()
 	fi
 }
 
+run_action_before_test()
+{
+	if [ -e $action_before_test_file ]; then
+		echo "run action before test"
+
+		sh $action_before_test_file $*
+	fi
+}
+
 prepare_loop()
 {
 	local loop=$1
 
 	echo "preparing loop $loop"
 
-	run_action_before_loop $loop $loop_dir
+	run_action_before_loop $result_dir $loop
 
 	# save and clear kernel/fw log
 	echo "  save and clear kernel/framework log"
-	adb $adb_on_device shell dmesg -c 2>>$err_log_file > $log_dir/kmesg_beforetest.txt
+	adb $adb_on_device shell dmesg -c 2>>$log_file > $log_dir/kmesg_beforetest.txt
 	adb $adb_on_device logcat -d -b main -b system $crash_str > $log_dir/logcat_beforetest.txt
 	adb $adb_on_device logcat -d -b events > $log_dir/logcat_events_beforetest.txt
 
 	adb $adb_on_device logcat -c -b main -b system $crash_str
-	adb $adb_on_device logcat -c -b events >>$err_log_file
+	adb $adb_on_device logcat -c -b events >>$log_file
 }
 
 
@@ -675,8 +684,6 @@ launch_apps()
 	timeline_file=$log_dir/timeline.txt
 	dumpsys_meminfo_file=$log_dir/dumpsys_meminfo.txt
 
-	err_log_file=$log_dir/error.txt
-
 	#
 	# define some VARs
 	#
@@ -726,7 +733,7 @@ launch_apps()
 				freq idle load memreclaim -t 5 -o $systrace_dir/$loop-$i-$sample-$p.html >/dev/null 2>/dev/null &
 		fi
 
-		run_action_before_launch_app $loop $i $p
+		run_action_before_launch_app $result_dir $loop $i $p
 
 		t=`date +%s`
 		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 3 => $t base"
@@ -760,7 +767,7 @@ launch_apps()
 		get_log "after" $p;
 		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 10 => `date +%s` after get_log"
 
-		run_action_after_launch_app $loop $i $p
+		run_action_after_launch_app $result_dir $loop $i $p
 
 		wait_until $((t+${args["time3_from_launch_app"]}))
 		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 11 => `date +%s` end"
@@ -837,13 +844,13 @@ install_tools()
 	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_dd > /dev/null
 	#fi
 	echo "  install my_dd"
-	push_file $tools_dir/my_dd /system/bin/my_dd
+	push_file $tools_dir/my_dd /system/bin/my_dd >> $log_file
 
 	#if [ ! -e $tools_dir/my_fio ]; then
 	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_fio > /dev/null
 	#fi
 	echo "  install my_fio"
-	push_file $tools_dir/my_fio /system/bin/my_fio
+	push_file $tools_dir/my_fio /system/bin/my_fio >> $log_file
 }
 
 parse_profile()
@@ -881,6 +888,10 @@ parse_profile()
 			sed -i "s/adb /adb $adb_on_device /g" /tmp/apt-$$.sh
 
 			case "$type" in
+				__action_before_test__)
+					cat /tmp/apt-$$.sh > $action_before_test_file
+					chmod +x $action_before_test_file
+					;;
 				__action_before_loop__)
 					cat /tmp/apt-$$.sh > $action_before_loop_file
 					chmod +x $action_before_loop_file
@@ -996,14 +1007,28 @@ parse_options()
 	  echo "    test_loops: loops will be iterated"
 	  echo "    get_systrace: capture systrace when launching app"
 	  echo ""
+	  echo "  __action_before_test__"
+	  echo "    shell script will be executed before test"
+	  echo "      @arg1: test result dir"
+	  echo ""
 	  echo "  __action_before_loop__"
 	  echo "    shell script will be executed before each loop"
+	  echo "      @arg1: test result dir"
+	  echo "      @arg2: loop index"
 	  echo ""
 	  echo "  __action_before_launch_app__"
 	  echo "    shell script will be executed before launch app"
+	  echo "      @arg1: test result dir"
+	  echo "      @arg2: loop index"
+	  echo "      @arg3: app index"
+	  echo "      @arg4: package name"
 	  echo ""
 	  echo "  __action_after_launch_app__"
 	  echo "    shell script will be executed after launch app"
+	  echo "      @arg1: test result dir"
+	  echo "      @arg2: loop index"
+	  echo "      @arg3: app index"
+	  echo "      @arg4: package name"
 
 	  exit
 	fi
@@ -1035,7 +1060,9 @@ parse_options()
 	readonly report_file=$result_dir/report.txt
 	readonly report_mem_file=$result_dir/memory.csv
 	readonly report_pkgs_launch_time_file=$result_dir/pkgs_launch_time.csv
+	readonly log_file=$result_dir/log.txt
 
+	readonly action_before_test_file=$action_dir/action_before_test.sh
 	readonly action_before_loop_file=$action_dir/action_before_loop.sh
 	readonly action_before_launch_app_file=$action_dir/action_before_launch_app.sh
 	readonly action_after_launch_app_file=$action_dir/action_after_launch_app.sh
@@ -1087,6 +1114,8 @@ main()
 	echo "	Device id : $device_id"
 	echo "	output	  : $result_dir"
 	echo "============================================================"
+
+	run_action_before_test $result_dir
 
 	install_tools
 

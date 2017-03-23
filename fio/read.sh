@@ -4,11 +4,9 @@ direct=1
 ioengine=mmap
 #iodepth=10
 #filename=/dev/block/dm-0
-runtime=30
-size=100M
+runtime=10
+size=200M
 time_based
-
-
 
 #----------------------------
 

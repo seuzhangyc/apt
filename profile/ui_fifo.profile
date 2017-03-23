@@ -9,16 +9,17 @@ test_loops=100
 
 ==> __action_before_loop__
 
-loop=$1
-loop_dir=$2
+result_dir=$1
+loop=$2
+
 is_odd=$((loop%2))
 
 if [ $is_odd -eq 1 ]; then
-	echo "ui fifo" >> $loop_dir/changes.txt
+	echo "ui fifo" >> $result_dir/$loop/changes.txt
 
 	adb shell "setprop persist.sys.ui_fifo 1"
 else
-	echo "ui normal" >> $loop_dir/changes.txt
+	echo "ui normal" >> $result_dir/$loop/changes.txt
 
 	adb shell "setprop persist.sys.ui_fifo 0"
 fi

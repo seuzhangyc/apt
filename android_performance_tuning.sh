@@ -975,7 +975,7 @@ parse_options()
 			-p=*)
 				profile_file=$profile_dir/"$optarg"
 				;;
-			-tag=*)
+			-t=*)
 				test_tag="$optarg"
 				;;
 			--help)
@@ -984,12 +984,27 @@ parse_options()
 			*)
 				echo "Bad option $opt"
 				show_help="yes"
-				exit_val=1
 		esac
 	done
 
 	if [[ "$show_help" == "yes" ]]; then
-	  echo "./android_performance_tuning.sh [-s=device_id] [-p=your_profile]"
+	  echo "./android_performance_tuning.sh [-s=device_id] [-p=your_profile] [-t=your_tag]"
+	  echo ""
+	  echo "profile args:"
+	  echo "  __global__"
+	  echo "    test_pkgs: packages will be tested"
+	  echo "    test_loops: loops will be iterated"
+	  echo "    get_systrace: capture systrace when launching app"
+	  echo ""
+	  echo "  __action_before_loop__"
+	  echo "    shell script will be executed before each loop"
+	  echo ""
+	  echo "  __action_before_launch_app__"
+	  echo "    shell script will be executed before launch app"
+	  echo ""
+	  echo "  __action_after_launch_app__"
+	  echo "    shell script will be executed after launch app"
+
 	  exit
 	fi
 

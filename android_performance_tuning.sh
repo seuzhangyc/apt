@@ -16,7 +16,7 @@ get_packages()
 {
 	local i=0
 
-	for p in `adb shell "pm list package -e" | tr -d "\r" | sed 's/package://g'`
+	for p in `adb $adb_on_device shell "pm list package -e" | tr -d "\r" | sed 's/package://g'`
 	do
 		# echo $p
 		if [[ -n `grep -w "$p$" $pkgs_withoutui_file` ]]; then
@@ -53,31 +53,31 @@ get_log()
 	echo -e "$prefix" >> $dumpsys_meminfo_file
 
 	# 1. kernel log
-	adb shell "dmesg -c" 2>/dev/null| sed '/auditd/d' | tee -a $kernel_log_file | grep -A3 -E "lowmemorykiller.*Killing" >> $lmk_log_file
+	adb $adb_on_device shell "dmesg -c" 2>/dev/null| sed '/auditd/d' | tee -a $kernel_log_file | grep -A3 -E "lowmemorykiller.*Killing" >> $lmk_log_file
 
 	# 2. meminfo
-	adb shell "cat /proc/meminfo" >> $meminfo_file
+	adb $adb_on_device shell "cat /proc/meminfo" >> $meminfo_file
 
 	# 3. get vmstat
-	adb shell "cat /proc/vmstat" >> $vmstat_file
+	adb $adb_on_device shell "cat /proc/vmstat" >> $vmstat_file
 
 	# 4. logcat
 
-	adb logcat -d -b main -b system $crash_str | tee -a $logcat_file | grep -e \
+	adb $adb_on_device logcat -d -b main -b system $crash_str | tee -a $logcat_file | grep -e \
 		"ActivityManager:" -e " am_" -e " Timeline" -e " wm_ " -e " art" -e " AndroidRuntime" -e " dex2oat"\
 		-e "WhetstoneService" -e "WtProcessController" -e "WtProcessStrategy" -e "WtMemStrategy" -e "WhetstonePackageState" -e "PowerKeeperPolicy" \
 		-e "octvm" -e "octvm_drv" -e "octvm_whetstone" -e "MemController" -e "MemCheckStateMachine" \
 		-e "AutoStartManagerService" \
 		-e " RenderThread"  -e " NotifierManager"  -e " ANDR-PERF-MPCTL" -e " BoostFramework" >> $ams_file
 
-	adb logcat -d -b events | sed '/auditd/d' >> $logcat_events_file
+	adb $adb_on_device logcat -d -b events | sed '/auditd/d' >> $logcat_events_file
 
 	 # clear buffer
-	adb logcat -c -b main -b system $crash_str
-	adb logcat -c -b events >>$err_log_file
+	adb $adb_on_device logcat -c -b main -b system $crash_str
+	adb $adb_on_device logcat -c -b events >>$err_log_file
 
 	# 5. cpu top
-	adb shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $cpusched_file # show top 10 threads
+	adb $adb_on_device shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $cpusched_file # show top 10 threads
 
 	case $when in
 		"before")
@@ -85,7 +85,7 @@ get_log()
 		"on")
 			;;
 		"after")
-			adb shell dumpsys meminfo >> $dumpsys_meminfo_file
+			adb $adb_on_device shell dumpsys meminfo >> $dumpsys_meminfo_file
 			;;
 	esac
 }
@@ -100,23 +100,24 @@ calc_avg()
 splite_file()
 {
 	local input_file=$1
+	local output_dir=$2
 
 	# /A/B/c.txt => c.txt
 	#local input_file_name=`echo "$input_file" | sed 's/.*\/\(.*$\)/\1/g'`
 	local base_name=`basename $input_file`
 
 	# csplit meminfo.txt file to meminfo_xxx.txt
-	csplit $input_file /^==\>.*package/ -n3 -s {*} -f $tmp_dir/$base_name -b "_split_%03d" ; rm $tmp_dir/${base_name}_split_000 ;
+	csplit $input_file /^==\>.*/ -n3 -s {*} -f $output_dir/$base_name -b "_split_%03d" ; rm $output_dir/${base_name}_split_000 ;
 
 	# splited_files is global var
-	splited_files=`find $tmp_dir -name ${base_name}_* | sort`
+	splited_files=`find $output_dir -name ${base_name}_* | sort`
 }
 
 extract_meminfo()
 {
 	local loop=$1
 
-	splite_file $meminfo_file
+	splite_file $meminfo_file $tmp_dir
 
 	# iterate each split file
 	for file in $splited_files
@@ -220,7 +221,7 @@ extract_lmk()
 {
 	local loop=$1
 
-	splite_file $lmk_log_file
+	splite_file $lmk_log_file $tmp_dir
 
 	# iterate each split file
 	for file in $splited_files
@@ -301,7 +302,7 @@ extract_ams()
 {
 	local loop=$1
 
-	splite_file $ams_file
+	splite_file $ams_file $tmp_dir
 
 	# iterate each split file
 	for file in $splited_files
@@ -338,7 +339,7 @@ extract_events()
 {
 	local loop=$1
 
-	splite_file $logcat_events_file
+	splite_file $logcat_events_file $tmp_dir
 
 	# iterate each split file
 	for file in $splited_files
@@ -574,141 +575,26 @@ analyse_log()
 	echo "$loop ${pkgs_launch_time[@]}" >> $report_pkgs_launch_time_file
 }
 
-reboot_device()
+run_action_before_launch_app()
 {
-	# reboot device
-	echo "  reboot device"
-	adb shell reboot
-	sleep 60 # 1 min
-
-	echo "  unlock screen"
-	adb shell input keyevent 26 # press power
-	adb shell input swipe 400 600 400 200 # swipe up to unlock screen
-
-	#sleep 60 # 1 min
+	if [ -e $action_before_launch_app_file ]; then
+		sh $action_before_launch_app_file $*
+	fi
 }
 
-user_action_before_app()
+run_action_after_launch_app()
 {
-	local pid
-
-	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
-	adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
-	adb shell "my_dd if=/dev/block/bootdevice/by-name/cust of=/dev/null bs=4k count=20480 iflag=direct" &
-	adb shell "my_dd if=/dev/block/bootdevice/by-name/system of=/dev/null bs=4k count=20480 iflag=direct" &
-
-	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
-	do
-		# adb shell ionice $i be 1
-		adb shell "echo $pid > /dev/cpuset/background/tasks"
-	done
-
-	sleep 2
+	if [ -e $action_after_launch_app_file ]; then
+		sh $action_after_launch_app_file $*
+	fi
 }
 
-user_action_after_app()
+run_action_before_loop()
 {
-	local pid
+	if [ -e $action_before_loop_file ]; then
+		echo "  run action before loop $loop"
 
-	for pid in `adb shell ps | grep my_dd | awk '{print $2}'`
-	do
-		# adb shell ionice $i be 1
-
-		adb shell "kill $pid"
-	done
-
-	sleep 1
-}
-
-user_action_before_loop()
-{
-	local loop=$1
-
-	is_odd=$((loop%2))
-
-	# drop cache and buffer
-	# adb shell sync
-	# adb shell "echo 3 > /proc/sys/vm/drop_caches"
-
-	if [ $is_odd -eq 1 ]; then
-		# adb shell "echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
-		# adb shell "setprop persist.sys.process_reclaim true"
-		# echo "enable process reclaim" >> $loop_dir/"changes.txt"
-
-		# echo "io normal" >> $loop_dir/"changes.txt"
-		# adb shell "setprop persist.sys.ui_fifo 0"
-		# adb shell "setprop persist.sys.ui_rtio 0"
-
-		echo "enable io cgroup(iops)" >> $loop_dir/"changes.txt"
-
-		#adb shell "echo 200 > /dev/cpuset/blkio.leaf_weight"
-		#adb shell "echo 1000 > /dev/cpuset/top-app/blkio.weight"
-		#adb shell "echo 300 > /dev/cpuset/foreground/blkio.weight"
-		#adb shell "echo 100 > /dev/cpuset/background/blkio.weight"
-		#adb shell "echo 100 > /dev/cpuset/system-background/blkio.weight"
-
-		#adb shell "echo 0 > /sys/block/dm-0/queue/iosched/slice_idle"
-		#adb shell "echo 0 > /sys/block/dm-0/queue/iosched/group_idle"
-		#adb shell "echo 16 > /sys/block/dm-0/queue/iosched/quantum"
-
-		#adb shell "echo 0 > /sys/block/mmcblk0/queue/iosched/slice_idle"
-		#adb shell "echo 0 > /sys/block/mmcblk0/queue/iosched/group_idle"
-		#adb shell "echo 16 > /sys/block/mmcblk0/queue/iosched/quantum"
-
-		#adb shell "echo 0 > /sys/block/mmcblk0rpmb/queue/iosched/slice_idle"
-		#adb shell "echo 0 > /sys/block/mmcblk0rpmb/queue/iosched/group_idle"
-		#adb shell "echo 16 > /sys/block/mmcblk0rpmb/queue/iosched/quantum"
-
-		# iops
-		adb shell "echo 253:0 300 > /dev/cpuset/background/blkio.throttle.read_iops_device"
-		adb shell "echo 179:0 300 > /dev/cpuset/background/blkio.throttle.read_iops_device"
-
-		#adb shell "echo 253:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
-		#adb shell "echo 179:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
-
-		#adb shell "echo 253:0 300 > /dev/cpuset/foreground/blkio.weight_device"
-		#adb shell "echo 179:0 300 > /dev/cpuset/foreground/blkio.weight_device"
-
-		#adb shell "echo 253:0 100 > /dev/cpuset/background/blkio.weight_device"
-		#adb shell "echo 179:0 100 > /dev/cpuset/background/blkio.weight_device"
-
-		#adb shell "echo 253:0 100 > /dev/cpuset/system-background/blkio.weight_device"
-		#adb shell "echo 179:0 100 > /dev/cpuset/system-background/blkio.weight_device"
-
-		# weight device
-		#adb shell "echo 253:0 200 > /dev/cpuset/blkio.leaf_weight_device"
-		#adb shell "echo 179:0 200 > /dev/cpuset/blkio.leaf_weight_device"
-
-		#adb shell "echo 253:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
-		#adb shell "echo 179:0 1000 > /dev/cpuset/top-app/blkio.weight_device"
-
-		#adb shell "echo 253:0 300 > /dev/cpuset/foreground/blkio.weight_device"
-		#adb shell "echo 179:0 300 > /dev/cpuset/foreground/blkio.weight_device"
-
-		#adb shell "echo 253:0 100 > /dev/cpuset/background/blkio.weight_device"
-		#adb shell "echo 179:0 100 > /dev/cpuset/background/blkio.weight_device"
-
-		#adb shell "echo 253:0 100 > /dev/cpuset/system-background/blkio.weight_device"
-		#adb shell "echo 179:0 100 > /dev/cpuset/system-background/blkio.weight_device"
-
-		#reboot_device
-	else
-		# adb shell "echo 0 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
-		# adb shell "setprop persist.sys.process_reclaim false"
-		# echo "disable process reclaim" >> $loop_dir/"changes.txt"
-
-		# echo "io rt" >> $loop_dir/"changes.txt"
-		# adb shell "setprop persist.sys.ui_fifo 0"
-		# adb shell "setprop persist.sys.ui_rtio 0"
-
-		echo "disable io cg(use default)" >> $loop_dir/"changes.txt"
-		#adb shell "echo 500 > /dev/cpuset/blkio.leaf_weight"
-		#adb shell "echo 500 > /dev/cpuset/top-app/blkio.weight"
-		#adb shell "echo 500 > /dev/cpuset/foreground/blkio.weight"
-		#adb shell "echo 500 > /dev/cpuset/background/blkio.weight"
-		#adb shell "echo 500 > /dev/cpuset/system-background/blkio.weight"
-
-		#reboot_device
+		sh $action_before_loop_file $*
 	fi
 }
 
@@ -718,31 +604,16 @@ prepare_loop()
 
 	echo "preparing loop $loop"
 
-	# restart framework
-	# echo "  restart framework"
-	# adb shell stop
-	# sleep 10
-	# adb shell start
-	# sleep 300 # 5 min
-
-	if [ $reboot_device_before_loop -eq 1 ]; then
-		reboot_device
-	fi
-
-	if [ $enable_user_action_before_loop -eq 1 ]; then
-		echo "  user action prepare"
-		user_action_before_loop $loop
-	fi
+	run_action_before_loop $loop $loop_dir
 
 	# save and clear kernel/fw log
 	echo "  save and clear kernel/framework log"
-	adb shell dmesg -c 2>>$err_log_file > $log_dir/kmesg_beforetest.txt
-	adb logcat -d -b main -b system $crash_str > $log_dir/logcat_beforetest.txt
-	adb logcat -d -b events > $log_dir/logcat_events_beforetest.txt
+	adb $adb_on_device shell dmesg -c 2>>$err_log_file > $log_dir/kmesg_beforetest.txt
+	adb $adb_on_device logcat -d -b main -b system $crash_str > $log_dir/logcat_beforetest.txt
+	adb $adb_on_device logcat -d -b events > $log_dir/logcat_events_beforetest.txt
 
-	adb logcat -c -b main -b system $crash_str
-	adb logcat -c -b events >>$err_log_file
-
+	adb $adb_on_device logcat -c -b main -b system $crash_str
+	adb $adb_on_device logcat -c -b events >>$err_log_file
 }
 
 
@@ -832,11 +703,11 @@ launch_apps()
 		# 1. launch home
 		#
 
-		# adb shell "input keyevent 3"
+		# adb $adb_on_device shell "input keyevent 3"
 		t=`date +%s`
-		adb shell "monkey -p com.miui.home 1" > /dev/null
+		adb $adb_on_device shell "monkey -p com.miui.home 1" > /dev/null
 
-		wait_until $((t+$time_from_launch_home))
+		wait_until $((t+${args["time_from_launch_home"]}))
 
 		#
 		# 2. launch app and get log
@@ -844,25 +715,23 @@ launch_apps()
 		echo "  Launch $i/${#pkgs_name[@]} $p"
 
 		# 2.1 get log before launching app
-		[ $show_timestamp -eq 1 ] && echo "$p: 1 => `date +%s` before get_log"
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 1 => `date +%s` before get_log"
 		get_log "before" $p
-		[ $show_timestamp -eq 1 ] && echo "$p: 2 => `date +%s` after get_log"
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 2 => `date +%s` after get_log"
 
 		# 2.2 launch app
 
-		if [ $get_systrace -eq 1 ]; then
+		if [ ${args["get_systrace"]} -eq 1 ]; then
 			python ~/Android/Sdk/platform-tools/systrace/systrace.py gfx input view webview wm am app dalvik sched \
 				freq idle load memreclaim -t 5 -o $systrace_dir/$loop-$i-$sample-$p.html >/dev/null 2>/dev/null &
 		fi
 
-		if [ $enable_user_action_before_app -eq 1 ]; then
-			user_action_before_app
-		fi
+		run_action_before_launch_app $loop $i $p
 
 		t=`date +%s`
-		[ $show_timestamp -eq 1 ] && echo "$p: 3 => $t base"
-		result=`adb shell "monkey -p $p 1"`
-		[ $show_timestamp -eq 1 ] && echo "$p: 4 => `date +%s` after monkey"
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 3 => $t base"
+		result=`adb $adb_on_device shell "monkey -p $p 1"`
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 4 => `date +%s` after monkey"
 
 		# check result
 		if [[ -n `echo $result | grep "No activities found to run, monkey aborted"` ]]; then
@@ -874,32 +743,30 @@ launch_apps()
 		fi
 
 		# 2.3 get log when app is launching
-		[ $show_timestamp -eq 1 ] && echo "$p: 5 => `date +%s`"
-		wait_until $((t+$time1_from_launch_app))
-		[ $show_timestamp -eq 1 ] && echo "$p: 6 => `date +%s` before get_log"
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 5 => `date +%s`"
+		wait_until $((t+${args["time1_from_launch_app"]}))
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 6 => `date +%s` before get_log"
 		get_log "on" $p;
-		[ $show_timestamp -eq 1 ] && echo "$p: 7 => `date +%s` after get_log"
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 7 => `date +%s` after get_log"
 
-		if [ $get_systrace -eq 1 ]; then
+		if [ ${args["get_systrace"]} -eq 1 ]; then
 			wait %1 # wait until systrace finished
 		fi
-		[ $show_timestamp -eq 1 ] && echo "$p: 8 => `date +%s` systrace finished"
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 8 => `date +%s` systrace finished"
 
 		# 2.4 get log after app launched
-		wait_until $((t+$time2_from_launch_app))
-		[ $show_timestamp -eq 1 ] && echo "$p: 9 => `date +%s` before get_log"
+		wait_until $((t+${args["time2_from_launch_app"]}))
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 9 => `date +%s` before get_log"
 		get_log "after" $p;
-		[ $show_timestamp -eq 1 ] && echo "$p: 10 => `date +%s` after get_log"
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 10 => `date +%s` after get_log"
 
-		if [ $enable_user_action_after_app -eq 1 ]; then
-			user_action_after_app
-		fi
+		run_action_after_launch_app $loop $i $p
 
-		wait_until $((t+$time3_from_launch_app))
-		[ $show_timestamp -eq 1 ] && echo "$p: 11 => `date +%s` end"
+		wait_until $((t+${args["time3_from_launch_app"]}))
+		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 11 => `date +%s` end"
 
 		# check whether exit
-		if [ $i -ge $test_pkgs ]; then
+		if [ $i -ge ${args["test_pkgs"]} ]; then
 			break
 		fi
 
@@ -916,8 +783,8 @@ get_system_info()
 {
 	# LMK
 	echo -e "------ LMK INFO ------" >> $report_file
-	lmk_adj=(`adb shell "cat /sys/module/lowmemorykiller/parameters/adj" | tr ',' ' '`)
-	lmk_minfree=(`adb shell "cat /sys/module/lowmemorykiller/parameters/minfree" | tr ',' ' '`)
+	lmk_adj=(`adb $adb_on_device shell "cat /sys/module/lowmemorykiller/parameters/adj" | tr ',' ' '`)
+	lmk_minfree=(`adb $adb_on_device shell "cat /sys/module/lowmemorykiller/parameters/minfree" | tr ',' ' '`)
 	lmk_minfree_M=(`echo ${lmk_minfree[@]} | awk '{for(i=1;i<=NF;i++) printf "%d ",$i*4096/1024/1024}'`) # xx MB
 	lmk_minfree_ajusted_M=(`echo ${lmk_minfree_M[@]} | awk '{for(i=1;i<=NF;i++) printf "%d ",$i*1.25}'`) # *1.25
 
@@ -927,7 +794,7 @@ get_system_info()
 	echo ${lmk_minfree_ajusted_M[@]} >> $report_file
 
 	# screen size
-	# adb shell dumpsys window displays |head -n 3
+	# adb $adb_on_device shell dumpsys window displays |head -n 3
 
 }
 
@@ -939,6 +806,9 @@ get_brief_info()
 	echo -e "========================================================\n" >> $report_file
 
 	get_system_info
+
+	echo echo -e "------ profile ------" >> $report_file
+	cat $profile_file >> $report_file
 }
 
 push_file()
@@ -946,33 +816,225 @@ push_file()
 	local host_file=$1
 	local target_file=$2
 
-	if [[ -n `adb shell ls $target_file | grep "No such file or directory"` ]]; then
-		adb remount
-		adb push $host_file $target_file
-		adb shell chmod +x $target_file
+	if [[ -n `adb $adb_on_device shell ls $target_file | grep "No such file or directory"` ]]; then
+		adb $adb_on_device remount
+		adb $adb_on_device push $host_file $target_file
+		adb $adb_on_device shell chmod +x $target_file
 	fi
 }
 
-get_tools()
+install_tools()
 {
-	echo "Downloading tools"
+	echo "install tools"
 
-	mkdir -p $tools_dir
+	adb $adb_on_device remount > /dev/null
 
+	#if [ ! -e $pkgs_withoutui_file ]; then
+	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file > /dev/null
+	#fi
 
-	if [ ! -e $pkgs_withoutui_file ]; then
-		wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file > /dev/null
-	fi
-
-	if [ ! -e $tools_dir/my_dd ]; then
-		wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_dd > /dev/null
-	fi
+	#if [ ! -e $tools_dir/my_dd ]; then
+	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_dd > /dev/null
+	#fi
+	echo "  install my_dd"
 	push_file $tools_dir/my_dd /system/bin/my_dd
 
-	if [ ! -e $tools_dir/my_fio ]; then
-		wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_fio > /dev/null
-	fi
+	#if [ ! -e $tools_dir/my_fio ]; then
+	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/tools/my_fio -O $tools_dir/my_fio > /dev/null
+	#fi
+	echo "  install my_fio"
 	push_file $tools_dir/my_fio /system/bin/my_fio
+}
+
+parse_profile()
+{
+	local f=$1
+
+	mkdir -p /tmp/$$
+	splite_file $f /tmp/$$
+
+	# iterate each split file
+	for file in $splited_files
+	do
+		#echo -e "file: $file"
+
+		type=`sed -n '/^==>/s/==> \(.*\)/\1/gp' $file`
+		sed -i '/^==>/d' $file
+		#echo "type = $type"
+
+		if [[ "$type" == "__global__" ]]; then
+			while read line
+			do
+				if [[ -z $line ]] || [[ -n `echo "$line" | sed -n '/^#/p'` ]]; then
+					continue
+				fi
+
+				key=`echo $line | sed 's/\(.*\)=.*/\1/g'`
+				val=`echo $line | sed 's/\(.*\)=\(.*\)/\2/g'`
+				# echo $key,$val
+				args["$key"]=$val
+			done < $file
+
+		else
+			cat util.sh $file > /tmp/apt-$$.sh
+			sed -i 's/$adb_on_device/ /g' /tmp/apt-$$.sh
+			sed -i "s/adb /adb $adb_on_device /g" /tmp/apt-$$.sh
+
+			case "$type" in
+				__action_before_loop__)
+					cat /tmp/apt-$$.sh > $action_before_loop_file
+					chmod +x $action_before_loop_file
+					;;
+				__action_before_launch_app__)
+					cat /tmp/apt-$$.sh > $action_before_launch_app_file
+					chmod +x $action_before_launch_app_file
+					;;
+				__action_after_launch_app__)
+					cat /tmp/apt-$$.sh > $action_after_launch_app_file
+					chmod +x $action_after_launch_app_file
+					;;
+				*)
+					echo "Bad type $opt, please check your profile $f"
+					exit
+					;;
+			esac
+		fi
+	done
+
+	rm -fr /tmp/$$
+
+	#
+	# check args
+	#
+	if [[ -z "${args["show_timestamp"]}" ]]; then
+		args["show_timestamp"]=0
+	fi
+
+	if [[ -z "${args["time_from_launch_home"]}" ]]; then
+		args["time_from_launch_home"]=5
+	fi
+
+	if [[ -z "${args["time1_from_launch_app"]}" ]]; then
+		args["time1_from_launch_app"]=3
+	fi
+
+	if [[ -z "${args["time2_from_launch_app"]}" ]]; then
+		args["time2_from_launch_app"]=10
+	fi
+
+	if [[ -z "${args["time3_from_launch_app"]}" ]]; then
+		args["time3_from_launch_app"]=15
+	fi
+
+	if [[ -z "${args["get_systrace"]}" ]]; then
+		args["get_systrace"]=0
+	fi
+
+	if [[ -z "${args["test_pkgs"]}" ]]; then
+		args["test_pkgs"]=50
+	fi
+
+	if [[ -z "${args["test_loops"]}" ]]; then
+		args["test_loops"]=100
+	fi
+
+	if [[ -z "${args["test_loops"]}" ]]; then
+		args["test_loops"]=100
+	fi
+
+	# show args
+	echo "=========================================="
+	for key in ${!args[@]}
+	do
+		echo -e "  $key : ${args["$key"]}"
+	done
+	echo "=========================================="
+
+	# others
+	if [[ -n `adb $adb_on_device logcat -c -b crash | grep "Unable to open log device"` ]]; then
+		crash_str=""
+	else
+		crash_str="-b crash"
+	fi
+}
+
+parse_options()
+{
+	# get product name => prada
+	readonly product=`adb $adb_on_device shell "getprop ro.build.product" | tr -d '\r'` # why need tr here????
+
+	# get current time => 2017-02-24@10-12
+	readonly start_time=`date "+%F-%H-%M"` # `date "+%F@%T"`
+
+	for opt do
+		optarg=`expr "x$opt" : 'x[^=]*=\(.*\)'`
+		case "$opt" in
+			-s=*)
+				device_id="$optarg"
+				;;
+			-p=*)
+				profile_file=$profile_dir/"$optarg"
+				;;
+			-tag=*)
+				test_tag="$optarg"
+				;;
+			--help)
+				show_help="yes"
+				;;
+			*)
+				echo "Bad option $opt"
+				show_help="yes"
+				exit_val=1
+		esac
+	done
+
+	if [[ "$show_help" == "yes" ]]; then
+	  echo "./android_performance_tuning.sh [-s=device_id] [-p=your_profile]"
+	  exit
+	fi
+
+	if [[ -z "$device_id" ]]; then
+		device_id=`adb devices | grep -E "device$" | awk '{print $1}'`
+	fi
+	adb_on_device="-s $device_id"
+
+	# check profile
+	if [[ -z "$profile_file" ]]; then
+		profile_file=$profile_dir/default.profile
+	fi
+
+	if [ ! -e $profile_file ]; then
+		echo "profile $profile_file does not exist, exit!!"
+		exit
+	fi
+
+	# define dir and files
+	readonly device_dir=$out_dir/$product-$device_id
+	if [[ -n "$test_tag" ]]; then
+		readonly result_dir=$device_dir/$start_time-`basename $profile_file`-$test_tag
+	else
+		readonly result_dir=$device_dir/$start_time-`basename $profile_file`
+	fi
+	readonly action_dir=$result_dir/action
+
+	readonly report_file=$result_dir/report.txt
+	readonly report_mem_file=$result_dir/memory.csv
+	readonly report_pkgs_launch_time_file=$result_dir/pkgs_launch_time.csv
+
+	readonly action_before_loop_file=$action_dir/action_before_loop.sh
+	readonly action_before_launch_app_file=$action_dir/action_before_launch_app.sh
+	readonly action_after_launch_app_file=$action_dir/action_after_launch_app.sh
+
+	# create dir
+	if [ -d $result_dir ]; then
+		echo "=> $result_dir already existed?? exit!!"
+		exit
+	else
+		mkdir -p $result_dir
+		mkdir -p $action_dir
+	fi
+
+	parse_profile $profile_file
 }
 
 #==================
@@ -982,102 +1044,27 @@ get_tools()
 
 main()
 {
-	adb root > /dev/null
-	sleep 2
-
-	# get device id => 82ab9b70
-	readonly device_id=`adb devices | grep -E "device$" | awk '{print $1}'`
-	# get product name => prada
-	readonly product=`adb shell "getprop ro.build.product" | tr -d '\r'` # why need tr here????
-
-	# get current time => 2017-02-24@10-12
-	readonly start_time=`date "+%F-%H-%M"` # `date "+%F@%T"`
-
 	#
-	# define some DIRs
-	#
-	readonly apt_dir="`pwd`/apt"
-	readonly device_dir=$apt_dir/$product-$device_id
-	if [ $# -ge 1 ]; then
-		readonly result_dir=$device_dir/$start_time-$1
-	else
-		readonly result_dir=$device_dir/$start_time
-	fi
-	readonly tools_dir=$apt_dir/tools
-
-	#
-	# define some FILEs
+	# global define
 	#
 
-	# packages related files
-	readonly pkgs_withoutui_file=$apt_dir/pkgs_withoutui.txt # shared by all test
+	# dir
+	readonly top_dir="`pwd`"
+	readonly tools_dir=$top_dir/tools
+	readonly out_dir=$top_dir/out
+	readonly profile_dir=$top_dir/profile
 
-	# report file
-	readonly report_file=$result_dir/report.txt
-	readonly report_mem_file=$result_dir/memory.csv
-	readonly report_pkgs_launch_time_file=$result_dir/pkgs_launch_time.csv
+	# file
+	readonly pkgs_withoutui_file=$top_dir/pkgs_withoutui.txt # shared by all test
 
-	#
-	# define global vars
-	#
+	# var
+	declare -A args
+
 	pkgs_name=()
 	pkgs_name_launched=()
 	declare -A pkgs_name2index  # [com.android.xx] <=> i
 
-	#
-	# define test parameters
-	#
-	if [[ -n `adb logcat -c -b crash | grep "Unable to open log device"` ]]; then
-		crash_str=""
-	else
-		crash_str="-b crash"
-	fi
-
-	if [[ -z $debug ]]; then
-		show_timestamp=0
-		time_from_launch_home=5
-		time1_from_launch_app=3
-		time2_from_launch_app=10
-		time3_from_launch_app=15
-
-		reboot_device_before_loop=1
-		get_systrace=0
-
-		test_pkgs=50
-		test_loops=100
-		enable_user_action_before_loop=0
-		enable_user_action_before_app=0
-		enable_user_action_after_app=0
-	else
-		show_timestamp=1
-		time_from_launch_home=2
-		time1_from_launch_app=2
-		time2_from_launch_app=4
-		time3_from_launch_app=5
-
-		reboot_device_before_loop=0
-		get_systrace=0
-
-		test_pkgs=5
-		test_loops=1
-		enable_user_action_before_loop=0
-		enable_user_action_before_app=0
-		enable_user_action_after_app=0
-	fi
-
-	# check device online
-	if [ -z $device_id ]; then
-		echo "Device is offline, exit"
-		exit
-	fi
-
-	# create output dir
-	if [ -d $result_dir ]; then
-		echo "=> $result_dir already existed?? exit!!"
-		exit
-	else
-		mkdir -p $result_dir
-	fi
+	parse_options $*
 
 	echo "============================================================"
 	echo "Start android performance tuning test at $start_time"
@@ -1086,7 +1073,7 @@ main()
 	echo "	output	  : $result_dir"
 	echo "============================================================"
 
-	get_tools
+	install_tools
 
 	# get system information, like lmk water mark, etc
 	get_brief_info
@@ -1094,7 +1081,7 @@ main()
 	# get apps to launch
 	get_packages
 
-	for i in `eval echo {1..$test_loops}`;
+	for i in `eval echo {1..${args["test_loops"]}}`;
 	do
 		launch_apps $i
 	done
@@ -1110,6 +1097,6 @@ main()
 # pass all arguments to main()
 main $*
 
-# getopt
-# ams info
-# cpuinfo
+# TODO:
+#   pagetype info
+#   zsmalloc info

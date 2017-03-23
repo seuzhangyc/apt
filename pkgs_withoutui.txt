@@ -205,6 +205,12 @@ com.android.nfc
 com.qualcomm.qti.carrierconfigure
 com.mediatek.factorymode
 com.lantern.sdk.miniapp
+com.qualcomm.qti.sam.service
+com.quicinc.wbcserviceapp
+com.qti.vzw.ims.internal.tests
+com.wt.version_query
+com.android.thememanager.module
+com.qualcomm.atfwd
 
 com.miui.home
 com.miui.fm

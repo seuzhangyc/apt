@@ -971,12 +971,6 @@ parse_profile()
 
 parse_options()
 {
-	# get product name => prada
-	readonly product=`adb $adb_on_device shell "getprop ro.build.product" | tr -d '\r'` # why need tr here????
-
-	# get current time => 2017-02-24@10-12
-	readonly start_time=`date "+%F-%H-%M"` # `date "+%F@%T"`
-
 	for opt do
 		optarg=`expr "x$opt" : 'x[^=]*=\(.*\)'`
 		case "$opt" in
@@ -1048,6 +1042,12 @@ parse_options()
 		exit
 	fi
 
+	# get product name => prada
+	readonly product=`adb $adb_on_device shell "getprop ro.build.product" | tr -d '\r'` # why need tr here????
+
+	# get current time => 2017-02-24@10-12
+	readonly start_time=`date "+%F-%H-%M"` # `date "+%F@%T"`
+
 	# define dir and files
 	readonly device_dir=$out_dir/$product-$device_id
 	if [[ -n "$test_tag" ]]; then
@@ -1115,8 +1115,6 @@ main()
 	echo "	output	  : $result_dir"
 	echo "============================================================"
 
-	run_action_before_test $result_dir
-
 	install_tools
 
 	# get system information, like lmk water mark, etc
@@ -1124,6 +1122,8 @@ main()
 
 	# get apps to launch
 	get_packages
+
+	run_action_before_test $result_dir
 
 	for i in `eval echo {1..${args["test_loops"]}}`;
 	do

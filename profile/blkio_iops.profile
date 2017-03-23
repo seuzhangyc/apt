@@ -14,6 +14,10 @@ result_dir=$1
 adb shell mkdir -p /data/apt
 adb push fio/blkio_bg_read.sh /data/apt > /dev/null
 
+# save this file
+echo -e "\n------ profile ------\n" >> $result_dir/report.txt
+cat blkio_bg_read.sh >> $result_dir/report.txt
+
 ==> __action_before_loop__
 
 result_dir=$1

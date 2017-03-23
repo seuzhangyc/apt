@@ -814,7 +814,7 @@ get_brief_info()
 
 	get_system_info
 
-	echo echo -e "------ profile ------" >> $report_file
+	echo -e "\n------ profile ------\n" >> $report_file
 	cat $profile_file >> $report_file
 }
 

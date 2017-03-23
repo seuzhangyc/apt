@@ -93,7 +93,7 @@ get_log()
 calc_avg()
 {
 	# ignore 0 value
-	avg=`cat $1 | awk 'BEGIN{sum=0; cnt=0} {sum+=$1; if($1!=0) cnt++;} END{printf "%d",sum/cnt}'`
+	avg=`cat $1 | awk 'BEGIN{sum=0; cnt=0} {sum+=$1; if($1!=0) cnt++;} END{if(cnt==0)printf "%d",0; else printf "%d",sum/cnt}'`
 	echo "$avg"
 }
 

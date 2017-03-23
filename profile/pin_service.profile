@@ -25,11 +25,11 @@ is_odd=$((loop%2))
 if [ $is_odd -eq 1 ]; then
 	echo "enable pinfile" >> $result_dir/$loop/changes.txt
 
-	adb shell "setprop persist.sys.enable_pinfile 1"	
+	adb shell "setprop persist.sys.enable_pinfile true"
 else
 	echo "disable pinfile" >> $result_dir/$loop/changes.txt
 
-	adb shell "setprop persist.sys.enable_pinfile 0"	
+	adb shell "setprop persist.sys.enable_pinfile false"
 fi
 
 reboot_device

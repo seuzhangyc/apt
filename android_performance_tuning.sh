@@ -600,6 +600,9 @@ run_action_before_loop()
 
 run_action_before_test()
 {
+	adb $adb_on_device root > /dev/null
+	adb $adb_on_device remount > /dev/null
+
 	if [ -e $action_before_test_file ]; then
 		echo "run action before test"
 
@@ -621,7 +624,7 @@ prepare_loop()
 	adb $adb_on_device logcat -d -b main -b system $crash_str > $log_dir/logcat_beforetest.txt
 	adb $adb_on_device logcat -d -b events > $log_dir/logcat_events_beforetest.txt
 
-	adb $adb_on_device logcat -c -b main -b system $crash_str
+	adb $adb_on_device logcat -c -b main -b system $crash_str >>$log_file
 	adb $adb_on_device logcat -c -b events >>$log_file
 }
 
@@ -824,7 +827,6 @@ push_file()
 	local target_file=$2
 
 	if [[ -n `adb $adb_on_device shell ls $target_file | grep "No such file or directory"` ]]; then
-		adb $adb_on_device remount
 		adb $adb_on_device push $host_file $target_file
 		adb $adb_on_device shell chmod +x $target_file
 	fi
@@ -833,8 +835,6 @@ push_file()
 install_tools()
 {
 	echo "install tools"
-
-	adb $adb_on_device remount > /dev/null
 
 	#if [ ! -e $pkgs_withoutui_file ]; then
 	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file > /dev/null
@@ -1115,6 +1115,8 @@ main()
 	echo "	output	  : $result_dir"
 	echo "============================================================"
 
+	run_action_before_test $result_dir
+
 	install_tools
 
 	# get system information, like lmk water mark, etc
@@ -1122,8 +1124,6 @@ main()
 
 	# get apps to launch
 	get_packages
-
-	run_action_before_test $result_dir
 
 	for i in `eval echo {1..${args["test_loops"]}}`;
 	do

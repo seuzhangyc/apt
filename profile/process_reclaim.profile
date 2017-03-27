@@ -12,11 +12,12 @@ test_loops=100
 result_dir=$1
 loop=$2
 
-is_odd=$((loop%2))
+group=$((loop/10))
+index=$((group%2))
 
 reboot_device
 
-if [ $is_odd -eq 1 ]; then
+if [ $index -eq 1 ]; then
 	echo "enable process reclaim" >> $result_dir/$loop/changes.txt
 
 	adb shell "echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim"

@@ -19,7 +19,7 @@ get_packages()
 	for p in `adb $adb_on_device shell "pm list package -e" | tr -d "\r" | sed 's/package://g'`
 	do
 		# echo $p
-		if [[ -n `grep -w "$p$" $pkgs_withoutui_file` ]]; then
+		if [[ -n `grep -w "$p$" $pkgs_withoutui_file` ]] || [[ -n `echo $p | grep -e "qualcomm" -e "longcheertel"` ]]; then
 			# echo "	remove $p"
 			continue
 		fi
@@ -49,7 +49,7 @@ get_log()
 	echo -e "$prefix" >> $logcat_file
 	echo -e "$prefix" >> $ams_file
 	echo -e "$prefix" >> $logcat_events_file
-	echo -e "$prefix" >> $cpusched_file
+	echo -e "$prefix" >> $top_file
 	echo -e "$prefix" >> $dumpsys_meminfo_file
 
 	# 1. kernel log
@@ -77,7 +77,7 @@ get_log()
 	adb $adb_on_device logcat -c -b events >>$log_file
 
 	# 5. cpu top
-	adb $adb_on_device shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $cpusched_file # show top 10 threads
+	adb $adb_on_device shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $top_file # show top 10 threads
 
 	case $when in
 		"before")
@@ -248,6 +248,7 @@ extract_lmk()
 		fi
 
 		lmk_cnt[i]=$cnt
+		lmk_total_cnt=$((lmk_total_cnt+cnt))
 		lmk_mem_freed[i]=$mem_freed
 		lmk_minadjkilled[i]=$minadjkilled
 	done
@@ -377,6 +378,7 @@ extract_events()
 		forcestop_kill_cnt=$((forcestop_kill_cnt*10))
 
 		ams_kill[i]=$am_kill_cnt
+		ams_total_kill=$((ams_total_kill+am_kill_cnt))
 		ams_empty_kill[i]=$empty_kill
 		ams_whetstone_kill[i]=$whetstone_kill_cnt
 		ams_securitycenter_kill[i]=$securitycenter_kill_cnt
@@ -443,6 +445,7 @@ analyse_log()
 	mem_avg=()
 
 	# lmk
+	lmk_total_cnt=0
 	lmk_cnt=()
 	lmk_memfreed=()
 	lmk_minadjkilled=()
@@ -453,6 +456,7 @@ analyse_log()
 	ams_startproc=()
 	ams_hasdied=()
 
+	ams_total_kill=0
 	ams_kill=()
 	ams_empty_kill=()
 	ams_whetstone_kill=()
@@ -563,8 +567,8 @@ analyse_log()
 		`calc_avg $extract_mem_dir/mem_filecache.txt` \
 		`calc_avg $extract_mem_dir/mem_anon.txt` \
 		`calc_avg $extract_mem_dir/mem_swapused.txt` \
-		`calc_avg $extract_lmk_dir/lmk_cnt.txt` \
-		`calc_avg $extract_ams_dir/ams_kill.txt` \
+		$lmk_total_cnt \
+		$ams_total_kill \
 		`calc_avg $extract_dir/pkgs_launch_time.txt` \
 		" >> $report_mem_file
 
@@ -596,6 +600,8 @@ run_action_before_loop()
 
 		sh $action_before_loop_file $*
 	fi
+
+
 }
 
 run_action_before_test()
@@ -617,6 +623,8 @@ prepare_loop()
 	echo "preparing loop $loop"
 
 	run_action_before_loop $result_dir $loop
+
+	adb $adb_on_device shell getprop > $log_dir/prop.txt
 
 	# save and clear kernel/fw log
 	echo "  save and clear kernel/framework log"
@@ -679,7 +687,7 @@ launch_apps()
 	lmk_log_file=$log_dir/lmk.txt
 	meminfo_file=$log_dir/meminfo.txt
 	vmstat_file=$log_dir/vmstat.txt
-	cpusched_file=$log_dir/cpusched.txt
+	top_file=$log_dir/top.txt
 
 	logcat_file=$log_dir/logcat.txt
 	logcat_events_file=$log_dir/logcat_events.txt
@@ -856,6 +864,9 @@ install_tools()
 parse_profile()
 {
 	local f=$1
+
+	# save profile
+	cp $f $result_dir/
 
 	mkdir -p /tmp/$$
 	splite_file $f /tmp/$$

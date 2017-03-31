@@ -11,10 +11,6 @@ test_loops=100
 
 result_dir=$1
 
-# save this file
-echo -e "\n------ profile ------\n" >> $result_dir/report.txt
-cat blkio_bg_read.sh >> $result_dir/report.txt
-
 ==> __action_before_loop__
 
 result_dir=$1

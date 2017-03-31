@@ -1,16 +1,16 @@
 [global]
 bs=4k
 direct=1
-ioengine=mmap
 #iodepth=10
-runtime=10
-size=200M
+runtime=3600000
+size=100M
 time_based
 
 #----------------------------
 
 [case1-blkio-bg]
 filename=/dev/block/dm-0
+ioengine=mmap
 rw=randread
 
 # io class
@@ -19,7 +19,7 @@ rw=randread
 
 cgroup=background
 #cgroup_weight=500
-#rate_iops=500
+rate_iops=800
 
 #cpus_allowed=4
 
@@ -29,6 +29,7 @@ numjobs=1
 
 [case2-blkio-bg]
 filename=/dev/block/mmcblk0
+ioengine=mmap
 rw=randread
 
 # io class
@@ -37,7 +38,27 @@ rw=randread
 
 cgroup=background
 #cgroup_weight=500
-#rate_iops=500
+rate_iops=800
+
+#cpus_allowed=4
+
+numjobs=1
+
+#----------------------------
+
+[case3-blkio-bg]
+directory=/data/apt
+ioengine=sync
+rw=randrw
+rwmixread=70
+
+# io class
+#prioclass=0
+#prio=0
+
+cgroup=background
+#cgroup_weight=500
+rate_iops=800
 
 #cpus_allowed=4
 

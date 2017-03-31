@@ -556,8 +556,8 @@ analyse_log()
 				mem_filecache \
 				mem_anon \
 				swapused \
-				lmk_cnt \
-				ams_kill \
+				lmk_total_cnt \
+				ams_total_kill \
 				pkgs_launch_time"\
 				>> $report_mem_file
 	fi
@@ -989,7 +989,7 @@ parse_options()
 				device_id="$optarg"
 				;;
 			-p=*)
-				profile_file=$profile_dir/"$optarg"
+				profile_name="$optarg"
 				;;
 			-t=*)
 				test_tag="$optarg"
@@ -1044,10 +1044,11 @@ parse_options()
 	adb_on_device="-s $device_id"
 
 	# check profile
-	if [[ -z "$profile_file" ]]; then
-		profile_file=$profile_dir/default.profile
+	if [[ -z "$profile_name" ]]; then
+		profile_name=default.profile
 	fi
 
+	profile_file=`find $profile_dir -name $profile_name`
 	if [ ! -e $profile_file ]; then
 		echo "profile $profile_file does not exist, exit!!"
 		exit

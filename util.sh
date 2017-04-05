@@ -4,10 +4,10 @@ reboot_device()
 	# reboot device
 	echo "  reboot device"
 	adb $adb_on_device shell reboot
-	sleep 60
+	sleep 50
 
 	adb $adb_on_device root
-	sleep 5
+	sleep 10
 
 	echo "  unlock screen"
 	adb $adb_on_device shell input keyevent 26 # press power

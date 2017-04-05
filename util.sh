@@ -25,8 +25,10 @@ disable_verity()
 		echo "[okay]"
 	else
 		echo "[nope and reboot needed]"
+		local whoami=`adb $adb_on_device shell whoami|tr -d '\r'`
+		[ "$whoami" != "root" ] && adb $adb_on_device root > /dev/null && sleep 2
 		adb $adb_on_device disable-verity
-		reboot_device
+		[ $? -eq 0 ] && reboot_device || echo "disable-verity error"
 	fi
 	adb $adb_on_device remount
 }

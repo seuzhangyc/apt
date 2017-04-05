@@ -2,6 +2,9 @@
 
 # debug="enable"
 
+# Import extra shell scripts
+source util.sh
+
 wait_until()
 {
 	end_time=$1
@@ -844,6 +847,9 @@ install_tools()
 {
 	echo "install tools"
 
+	# disable-verity in case no push permission
+	disable_verity
+
 	#if [ ! -e $pkgs_withoutui_file ]; then
 	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file > /dev/null
 	#fi
@@ -1127,9 +1133,9 @@ main()
 	echo "	output	  : $result_dir"
 	echo "============================================================"
 
-	run_action_before_test $result_dir
-
 	install_tools
+	
+	run_action_before_test $result_dir
 
 	# get system information, like lmk water mark, etc
 	get_brief_info

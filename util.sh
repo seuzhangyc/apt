@@ -15,3 +15,18 @@ reboot_device()
 
 	#sleep 60 # 1 min
 }
+
+disable_verity()
+{
+	# adb disable-verity if necessary
+	echo -n "checking if verity is disabled..."
+	local adb_out=`adb $adb_on_device disable-verity|grep 'already disabled'`
+	if [ "$adb_out" ]; then
+		echo "[okay]"
+	else
+		echo "[nope and reboot needed]"
+		adb $adb_on_device disable-verity
+		reboot_device
+	fi
+	adb $adb_on_device remount
+}

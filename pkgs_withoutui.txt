@@ -241,3 +241,9 @@ com.xiaomi.account
 com.miui.voiceassist
 com.android.providers.downloads.ui
 com.miui.serviceloop
+--> com.mediatek.batterywarning
+--> com.qiyi.video.sdkplayer
+--> com.mediatek.batterywarning
+--> com.qiyi.video.sdkplayer
+--> com.mediatek.batterywarning
+--> com.qiyi.video.sdkplayer

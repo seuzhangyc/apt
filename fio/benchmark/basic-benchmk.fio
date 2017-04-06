@@ -2,7 +2,7 @@
 bs=4k
 direct=1
 iodepth=1
-runtime=60s
+runtime=20s
 size=100m
 time_based
 numjobs=1

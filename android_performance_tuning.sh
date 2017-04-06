@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# debug="enable"
-
 # Import extra shell scripts
 source util.sh
+source fio.sh
 
 wait_until()
 {
@@ -604,7 +603,7 @@ run_action_before_loop()
 		sh $action_before_loop_file $*
 	fi
 
-
+	[ "${args["io_benchmark"]}" = "enable" ] && run_io_benchmk $*
 }
 
 run_action_before_test()
@@ -616,6 +615,12 @@ run_action_before_test()
 		echo "run action before test"
 
 		sh $action_before_test_file $*
+	fi
+
+	if [ "${args["io_benchmark"]}" = "enable" ]; then
+		prepare_io_benchmk
+	else
+		echo -e "  io benchmark disabled...[${RED}skip${END}]"
 	fi
 }
 
@@ -1134,7 +1139,7 @@ main()
 	echo "============================================================"
 
 	install_tools
-	
+
 	run_action_before_test $result_dir
 
 	# get system information, like lmk water mark, etc

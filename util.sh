@@ -4,7 +4,7 @@ readonly RED_HI="\033[31,1m"
 readonly END="\033[0m"
 
 reboot_device()
-{	
+{
 	# reboot device
 	echo "  reboot device"
 	adb $adb_on_device shell reboot
@@ -25,7 +25,7 @@ disable_verity()
 	#1. check if it is root
 	local whoami=`adb $adb_on_device shell whoami|tr -d '\r'`
 	[ "$whoami" != "root" ] && adb $adb_on_device root > /dev/null && sleep 2
-	
+
 	#2. adb disable-verity if necessary
 	echo -n "  check verity is disabled..."
 	local adb_out=`adb $adb_on_device disable-verity|grep 'already disabled'`
@@ -33,18 +33,18 @@ disable_verity()
 		echo -e "[${GREEN}okay${END}]"
 	else
 		echo -e "[${RED}nope and reboot needed${END}]"
-		echo -n "  disable verity..." && \
-				adb $adb_on_device disable-verity 2&> /dev/null && \
-					echo -e "[${GREEN}done${END}]" || echo -e "[${RED}error${END}]"
-		[ $? -eq 0 ] && reboot_device || echo -e "disable-verity ${RED_HI}error${END}"
+
+		echo -n "  disable verity..."
+		adb $adb_on_device disable-verity &> /dev/null
+
+		if [ $? -eq 0 ]; then
+			echo -e "[${GREEN}done${END}]"
+			reboot_device
+		else
+			echo -e "[${RED}error${END}]"
+		fi
 	fi
 
-	#3. remount filesystem	
-	adb $adb_on_device remount 2&> /dev/null
-}
-
-run_fio_perl()
-{
-	local perl_bin=`which perl`
-	$perl_bin tools/fio_test.pl	
+	#3. remount filesystem
+	adb $adb_on_device remount &> /dev/null
 }

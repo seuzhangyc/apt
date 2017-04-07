@@ -30,7 +30,7 @@ is_odd=$((loop%2))
 
 if [ $is_odd -eq 1 ]; then
 	echo "enable rtio" >> $result_dir/$loop/changes.txt
-	adb shell setprop persist.sys.ui_rtio 1	
+	adb shell setprop persist.sys.ui_rtio 1
 else
 	echo "disable rtio" >> $result_dir/$loop/changes.txt
 	adb shell setprop persist.sys.ui_rtio 0
@@ -55,7 +55,20 @@ adb shell cat /dev/cpuctl/bg_non_interactive/blkio.throttle.write_iops_device >>
 
 ==> __action_before_launch_app__
 
-adb shell "my_fio /data/apt/fio/blkio_bg_rw_timeout.fio" &
-sleep 2
+#adb shell "my_fio /data/apt/fio/blkio_bg_rw_timeout.fio" &
+#sleep 2
+
+adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
+adb shell "my_dd if=/dev/block/dm-0 of=/dev/null bs=4k count=20480 iflag=direct" &
+adb shell "my_dd if=/dev/block/bootdevice/by-name/cust of=/dev/null bs=4k count=20480 iflag=direct" &
+adb shell "my_dd if=/dev/block/bootdevice/by-name/system of=/dev/null bs=4k count=20480 iflag=direct" &
+
+pids=`adb shell ps | grep my_dd | awk '{print $2}'`
+for i in $pids
+do
+	adb shell ionice $i be 1
+done
+
+sleep 1
 
 ==> __action_after_launch_app__

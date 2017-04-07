@@ -225,6 +225,8 @@ com.longcheertel.AutoTest
 com.wdstechnology.android.kryten
 com.qti.diagservices
 com.longcheertel.cit
+com.miui.daemon
+com.miui.wmsvc
 
 com.miui.home
 com.miui.fm

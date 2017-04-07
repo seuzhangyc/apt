@@ -8,7 +8,7 @@ reboot_device()
 	# reboot device
 	echo "  reboot device"
 	adb $adb_on_device shell reboot
-	sleep 50
+	sleep 60
 
 	adb $adb_on_device root
 	sleep 10

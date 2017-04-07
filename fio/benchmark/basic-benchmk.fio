@@ -7,6 +7,7 @@ size=100m
 time_based
 numjobs=1
 rwmixread=50
+iomem=shm
 
 # TEST ONE: normal read-write
 

@@ -48,3 +48,20 @@ disable_verity()
 	#3. remount filesystem
 	adb $adb_on_device remount &> /dev/null
 }
+
+print_spinner()
+{
+    local pid=$1
+    local delay=0.35
+    local spinstr='|/-\'
+
+	while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf "[${RED}%c${END}] " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+

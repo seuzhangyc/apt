@@ -46,7 +46,8 @@ run_io_benchmk()
 
 	# kick off io testing
 	echo -n "  run_io_benchmk."
-	adb $adb_on_device shell my_fio $bench_ini_file &> $bench_log_file
+	adb $adb_on_device shell my_fio $bench_ini_file &> $bench_log_file &
+	print_spinner $!
 	if [ $? -eq 0 ]; then
 		echo -n "."
 		local fio_save=$(cat $bench_log_file | grep "IOPS=" | awk '{print $2" "$3}' | sed 's/IOPS=\(.*\), BW=\(.*\)[KkMm].*/\1 \2/g' | xargs)

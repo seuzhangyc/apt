@@ -722,6 +722,11 @@ launch_apps()
 	echo "launch app loop $loop"
 	for i in `eval echo {1..${#pkgs_name[@]}}`
 	do
+		# check whether exit
+		if [ $i -ge ${args["test_pkgs"]} ]; then
+			break
+		fi
+
 		p=${pkgs_name[i]}
 		pkgs_name_launched[i]=$p
 
@@ -791,14 +796,9 @@ launch_apps()
 		wait_until $((t+${args["time3_from_launch_app"]}))
 		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 11 => `date +%s` end"
 
-		# check whether exit
-		if [ $i -ge ${args["test_pkgs"]} ]; then
-			break
-		fi
-
 	done
 
-	analyse_log $loop
+	[[ "${args["test_pkgs"]}" -gt 0 ]] && analyse_log $loop
 
 	echo "-----------------"
 	echo "loop $loop end at: "`date "+%F@%H:%M:%S"`
@@ -1152,6 +1152,8 @@ main()
 	do
 		launch_apps $i
 	done
+
+	endup_io_benchmk
 
 	readonly end_time=`date "+%F@%H-%M"` # `date "+%F@%T"`
 

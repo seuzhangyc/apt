@@ -4,9 +4,10 @@
 
 ==> __global__
 
-test_pkgs=50
-test_loops=100
+test_pkgs=0
+test_loops=50
 io_benchmark=enable
+io_benchmark_stopfw=true
 
 ==> __action_before_test__
 

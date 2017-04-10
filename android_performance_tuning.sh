@@ -3,6 +3,7 @@
 # Import extra shell scripts
 source util.sh
 source fio.sh
+source signal.sh
 
 wait_until()
 {
@@ -723,7 +724,7 @@ launch_apps()
 	for i in `eval echo {1..${#pkgs_name[@]}}`
 	do
 		# check whether exit
-		if [ $i -ge ${args["test_pkgs"]} ]; then
+		if [ $i -gt ${args["test_pkgs"]} ]; then
 			break
 		fi
 

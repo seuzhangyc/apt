@@ -67,6 +67,5 @@ endup_io_benchmk()
 	# restore fw if disabled
 	if [ "${args["io_benchmark_stopfw"]}" = "true" ]; then
 		adb $adb_on_device shell start &> /dev/null
-		sleep 3
 	fi
 }

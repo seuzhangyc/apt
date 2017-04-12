@@ -1066,7 +1066,7 @@ parse_options()
 	readonly product=`adb $adb_on_device shell "getprop ro.build.product" | tr -d '\r'` # why need tr here????
 
 	# get current time => 2017-02-24@10-12
-	readonly start_time=`date "+%F-%H-%M"` # `date "+%F@%T"`
+	readonly start_time=`date "+%F-%H-%M-%S"` # `date "+%F@%T"`
 
 	# define dir and files
 	readonly device_dir=$out_dir/$product-$device_id

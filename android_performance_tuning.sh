@@ -246,7 +246,7 @@ extract_lmk()
 
 		# find min adj killed
 		minadjkilled=`cat $file | grep -E "lowmemorykiller.*Killing" | sed 's/.*, adj \(.*\),/\1/g' | sort -n | sed -n '1p' | tr -d '\r'`
-		if [ -z $minadjkilled ]; then
+		if [ -z "$minadjkilled" ]; then
 			minadjkilled=0
 		fi
 
@@ -966,10 +966,6 @@ parse_profile()
 
 	if [[ -z "${args["test_pkgs"]}" ]]; then
 		args["test_pkgs"]=50
-	fi
-
-	if [[ -z "${args["test_loops"]}" ]]; then
-		args["test_loops"]=100
 	fi
 
 	if [[ -z "${args["test_loops"]}" ]]; then

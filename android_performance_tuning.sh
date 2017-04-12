@@ -1135,6 +1135,9 @@ main()
 	echo "	output	  : $result_dir"
 	echo "============================================================"
 
+	# make sure battery level >= 40%
+	check_and_wait_battery 40
+
 	install_tools
 
 	run_action_before_test $result_dir

@@ -51,11 +51,12 @@ run_io_benchmk()
 	if [ $? -eq 0 ]; then
 		echo -n "."
 		local fio_save=$(cat $bench_log_file | grep "IOPS=" | awk '{print $2" "$3}' | sed 's/IOPS=\(.*\), BW=\(.*\)[KkMm].*/\1 \2/g' | xargs)
+		sleep 1
 		echo -n "."
 		echo -e "[${GREEN}$fio_save${END}]"
 		echo "$cur_loop_cnt $fio_save" >> $bench_res_file
 	else
-		echo -n ".."
+		echo -n "." && sleep 1 && echo -n "."
 		echo -e "[${RED}error${END}]"
 	fi
 }

@@ -65,3 +65,44 @@ print_spinner()
     printf "    \b\b\b\b"
 }
 
+check_and_wait_battery()
+{
+	local required_power=$1
+	local power_level=`adb $adb_on_device shell dumpsys battery | grep level | tr -d '\r' | xargs | awk '{print $2}'`
+	local display_status=`adb $adb_on_device shell dumpsys power | grep 'Display Power:' | sed 's/=/ /g' | tr -d '\r' | awk '{print $4}'`
+
+	echo -n "check battery level..."
+	if [ $power_level -lt $required_power ]; then
+		echo -e "[${RED}low-${power_level}%${END}]"
+
+		if [ "$display_status" = "ON" ]; then
+			#closedisplay
+			adb $adb_on_device shell input keyevent 26
+			sleep 1
+		fi
+
+		local flag=0
+		while [ $power_level -lt $required_power ];
+		do
+			if [ $flag -eq 0 ]; then
+				echo -n "  battery charging."
+				flag=1
+			else
+				echo -n .
+			fi
+			sleep 60
+			power_level=`adb $adb_on_device shell dumpsys battery | grep level | tr -d '\r' | xargs | awk '{print $2}'`
+		done
+		echo -e "[${GREEN}done${END}]"
+	else
+		echo -e "[${GREEN}okay${END}]"
+	fi
+
+	display_status=`adb $adb_on_device shell dumpsys power | grep 'Display Power:' | sed 's/=/ /g' | tr -d '\r' | awk '{print $4}'`
+
+	if [ "$display_status" = "OFF" ]; then
+		adb $adb_on_device shell input keyevent 26
+		adb $adb_on_device shell input swipe 400 600 400 200
+		sleep 1
+	fi
+}

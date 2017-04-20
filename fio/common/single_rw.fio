@@ -1,0 +1,16 @@
+[global]
+bs=4k
+direct=1
+runtime=1000000
+size=100M
+time_based
+
+[case1]
+#directory=/data/apt
+#filename=/dev/block/bootdevice/by-name/cust
+cgroup=bg_non_interactive
+ioengine=sync
+rw=read
+#rate_iops=100
+
+numjobs=1

@@ -1,5 +1,5 @@
 #
-# default profile
+# set ui/render thread as FIFO sched
 #
 
 ==> __global__

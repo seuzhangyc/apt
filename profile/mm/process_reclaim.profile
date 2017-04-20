@@ -21,12 +21,10 @@ if [ $index -eq 1 ]; then
 	echo "enable process reclaim" >> $result_dir/$loop/changes.txt
 
 	adb shell "echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
-	# adb shell "setprop persist.sys.process_reclaim true"
 else
 	echo "disable process reclaim" >> $result_dir/$loop/changes.txt
 
 	adb shell "echo 0 > /sys/module/process_reclaim/parameters/enable_process_reclaim"
-	# adb shell "setprop persist.sys.process_reclaim false"
 fi
 
 ==> __action_before_launch_app__

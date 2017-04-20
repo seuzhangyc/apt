@@ -1,6 +1,9 @@
 #!/bin/bash
 
-# debug="enable"
+# Import extra shell scripts
+source util.sh
+source fio.sh
+source signal.sh
 
 wait_until()
 {
@@ -19,7 +22,7 @@ get_packages()
 	for p in `adb $adb_on_device shell "pm list package -e" | tr -d "\r" | sed 's/package://g'`
 	do
 		# echo $p
-		if [[ -n `grep -w "$p$" $pkgs_withoutui_file` ]]; then
+		if [[ -n `grep -w "$p$" $pkgs_withoutui_file` ]] || [[ -n `echo $p | grep -e "qualcomm" -e "longcheertel"` ]]; then
 			# echo "	remove $p"
 			continue
 		fi
@@ -49,7 +52,7 @@ get_log()
 	echo -e "$prefix" >> $logcat_file
 	echo -e "$prefix" >> $ams_file
 	echo -e "$prefix" >> $logcat_events_file
-	echo -e "$prefix" >> $cpusched_file
+	echo -e "$prefix" >> $top_file
 	echo -e "$prefix" >> $dumpsys_meminfo_file
 
 	# 1. kernel log
@@ -77,7 +80,7 @@ get_log()
 	adb $adb_on_device logcat -c -b events >>$log_file
 
 	# 5. cpu top
-	adb $adb_on_device shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $cpusched_file # show top 10 threads
+	adb $adb_on_device shell "top -m 10 -t -n 1 -d 2" | sed '1,3d'>> $top_file # show top 10 threads
 
 	case $when in
 		"before")
@@ -243,11 +246,12 @@ extract_lmk()
 
 		# find min adj killed
 		minadjkilled=`cat $file | grep -E "lowmemorykiller.*Killing" | sed 's/.*, adj \(.*\),/\1/g' | sort -n | sed -n '1p' | tr -d '\r'`
-		if [ -z $minadjkilled ]; then
+		if [ -z "$minadjkilled" ]; then
 			minadjkilled=0
 		fi
 
 		lmk_cnt[i]=$cnt
+		lmk_total_cnt=$((lmk_total_cnt+cnt))
 		lmk_mem_freed[i]=$mem_freed
 		lmk_minadjkilled[i]=$minadjkilled
 	done
@@ -377,6 +381,7 @@ extract_events()
 		forcestop_kill_cnt=$((forcestop_kill_cnt*10))
 
 		ams_kill[i]=$am_kill_cnt
+		ams_total_kill=$((ams_total_kill+am_kill_cnt))
 		ams_empty_kill[i]=$empty_kill
 		ams_whetstone_kill[i]=$whetstone_kill_cnt
 		ams_securitycenter_kill[i]=$securitycenter_kill_cnt
@@ -443,6 +448,7 @@ analyse_log()
 	mem_avg=()
 
 	# lmk
+	lmk_total_cnt=0
 	lmk_cnt=()
 	lmk_memfreed=()
 	lmk_minadjkilled=()
@@ -453,6 +459,7 @@ analyse_log()
 	ams_startproc=()
 	ams_hasdied=()
 
+	ams_total_kill=0
 	ams_kill=()
 	ams_empty_kill=()
 	ams_whetstone_kill=()
@@ -552,8 +559,8 @@ analyse_log()
 				mem_filecache \
 				mem_anon \
 				swapused \
-				lmk_cnt \
-				ams_kill \
+				lmk_total_cnt \
+				ams_total_kill \
 				pkgs_launch_time"\
 				>> $report_mem_file
 	fi
@@ -563,8 +570,8 @@ analyse_log()
 		`calc_avg $extract_mem_dir/mem_filecache.txt` \
 		`calc_avg $extract_mem_dir/mem_anon.txt` \
 		`calc_avg $extract_mem_dir/mem_swapused.txt` \
-		`calc_avg $extract_lmk_dir/lmk_cnt.txt` \
-		`calc_avg $extract_ams_dir/ams_kill.txt` \
+		$lmk_total_cnt \
+		$ams_total_kill \
 		`calc_avg $extract_dir/pkgs_launch_time.txt` \
 		" >> $report_mem_file
 
@@ -596,6 +603,8 @@ run_action_before_loop()
 
 		sh $action_before_loop_file $*
 	fi
+
+	[ "${args["io_benchmark"]}" = "enable" ] && run_io_benchmk $*
 }
 
 run_action_before_test()
@@ -608,6 +617,12 @@ run_action_before_test()
 
 		sh $action_before_test_file $*
 	fi
+
+	if [ "${args["io_benchmark"]}" = "enable" ]; then
+		prepare_io_benchmk
+	else
+		echo -e "  io benchmark disabled...[${RED}skip${END}]"
+	fi
 }
 
 prepare_loop()
@@ -617,6 +632,8 @@ prepare_loop()
 	echo "preparing loop $loop"
 
 	run_action_before_loop $result_dir $loop
+
+	adb $adb_on_device shell getprop > $log_dir/prop.txt
 
 	# save and clear kernel/fw log
 	echo "  save and clear kernel/framework log"
@@ -679,7 +696,7 @@ launch_apps()
 	lmk_log_file=$log_dir/lmk.txt
 	meminfo_file=$log_dir/meminfo.txt
 	vmstat_file=$log_dir/vmstat.txt
-	cpusched_file=$log_dir/cpusched.txt
+	top_file=$log_dir/top.txt
 
 	logcat_file=$log_dir/logcat.txt
 	logcat_events_file=$log_dir/logcat_events.txt
@@ -706,6 +723,11 @@ launch_apps()
 	echo "launch app loop $loop"
 	for i in `eval echo {1..${#pkgs_name[@]}}`
 	do
+		# check whether exit
+		if [ $i -gt ${args["test_pkgs"]} ]; then
+			break
+		fi
+
 		p=${pkgs_name[i]}
 		pkgs_name_launched[i]=$p
 
@@ -775,14 +797,9 @@ launch_apps()
 		wait_until $((t+${args["time3_from_launch_app"]}))
 		[ ${args["show_timestamp"]} -eq 1 ] && echo "$p: 11 => `date +%s` end"
 
-		# check whether exit
-		if [ $i -ge ${args["test_pkgs"]} ]; then
-			break
-		fi
-
 	done
 
-	analyse_log $loop
+	[[ "${args["test_pkgs"]}" -gt 0 ]] && analyse_log $loop
 
 	echo "-----------------"
 	echo "loop $loop end at: "`date "+%F@%H:%M:%S"`
@@ -836,6 +853,9 @@ install_tools()
 {
 	echo "install tools"
 
+	# disable-verity in case no push permission
+	disable_verity
+
 	#if [ ! -e $pkgs_withoutui_file ]; then
 	#	wget https://raw.githubusercontent.com/yzkqfll/apt/master/pkgs_withoutui.txt -O $pkgs_withoutui_file > /dev/null
 	#fi
@@ -856,6 +876,9 @@ install_tools()
 parse_profile()
 {
 	local f=$1
+
+	# save profile
+	cp $f $result_dir/
 
 	mkdir -p /tmp/$$
 	splite_file $f /tmp/$$
@@ -949,10 +972,6 @@ parse_profile()
 		args["test_loops"]=100
 	fi
 
-	if [[ -z "${args["test_loops"]}" ]]; then
-		args["test_loops"]=100
-	fi
-
 	# show args
 	echo "=========================================="
 	for key in ${!args[@]}
@@ -978,7 +997,7 @@ parse_options()
 				device_id="$optarg"
 				;;
 			-p=*)
-				profile_file=$profile_dir/"$optarg"
+				profile_name="$optarg"
 				;;
 			-t=*)
 				test_tag="$optarg"
@@ -1033,10 +1052,11 @@ parse_options()
 	adb_on_device="-s $device_id"
 
 	# check profile
-	if [[ -z "$profile_file" ]]; then
-		profile_file=$profile_dir/default.profile
+	if [[ -z "$profile_name" ]]; then
+		profile_name=default.profile
 	fi
 
+	profile_file=`find $profile_dir -name $profile_name`
 	if [ ! -e $profile_file ]; then
 		echo "profile $profile_file does not exist, exit!!"
 		exit
@@ -1046,7 +1066,7 @@ parse_options()
 	readonly product=`adb $adb_on_device shell "getprop ro.build.product" | tr -d '\r'` # why need tr here????
 
 	# get current time => 2017-02-24@10-12
-	readonly start_time=`date "+%F-%H-%M"` # `date "+%F@%T"`
+	readonly start_time=`date "+%F-%H-%M-%S"` # `date "+%F@%T"`
 
 	# define dir and files
 	readonly device_dir=$out_dir/$product-$device_id
@@ -1115,9 +1135,12 @@ main()
 	echo "	output	  : $result_dir"
 	echo "============================================================"
 
-	run_action_before_test $result_dir
+	# make sure battery level >= 40%
+	check_and_wait_battery 40
 
 	install_tools
+
+	run_action_before_test $result_dir
 
 	# get system information, like lmk water mark, etc
 	get_brief_info
@@ -1129,6 +1152,8 @@ main()
 	do
 		launch_apps $i
 	done
+
+	endup_io_benchmk
 
 	readonly end_time=`date "+%F@%H-%M"` # `date "+%F@%T"`
 
